@@ -58,10 +58,10 @@ class NameApplier : public ExprVisitor::DelegateNop {
   Result OnTeeLocalExpr(Expr*) override;
 
  private:
-  void PushLabel(Label* label);
+  void PushLabel(const std::string& label);
   void PopLabel();
-  Label* FindLabelByVar(Var* var);
-  void UseNameForVar(StringSlice* name, Var* var);
+  const std::string* FindLabelByVar(Var* var);
+  void UseNameForVar(const std::string* name, Var* var);
   Result UseNameForFuncTypeVar(Module* module, Var* var);
   Result UseNameForFuncVar(Module* module, Var* var);
   Result UseNameForGlobalVar(Module* module, Var* var);
@@ -79,12 +79,12 @@ class NameApplier : public ExprVisitor::DelegateNop {
   /* mapping from param index to its name, if any, for the current func */
   std::vector<std::string> param_index_to_name_;
   std::vector<std::string> local_index_to_name_;
-  std::vector<Label*> labels_;
+  std::vector<std::string> labels_;
 };
 
 NameApplier::NameApplier() : visitor_(this) {}
 
-void NameApplier::PushLabel(Label* label) {
+void NameApplier::PushLabel(const std::string& label) {
   labels_.push_back(label);
 }
 
@@ -92,29 +92,29 @@ void NameApplier::PopLabel() {
   labels_.pop_back();
 }
 
-Label* NameApplier::FindLabelByVar(Var* var) {
+const std::string* NameApplier::FindLabelByVar(Var* var) {
   if (var->type == VarType::Name) {
-    for (int i = labels_.size() - 1; i >= 0; --i) {
-      Label* label = labels_[i];
-      if (string_slices_are_equal(label, &var->name))
-        return label;
+    for (auto iter = labels_.rbegin(), end = labels_.rend(); iter != end;
+         ++iter) {
+      if (*iter == var->name)
+        return &*iter;
     }
     return nullptr;
   } else {
     if (var->index >= labels_.size())
       return nullptr;
-    return labels_[labels_.size() - 1 - var->index];
+    return &*(labels_.rbegin() + var->index);
   }
 }
 
-void NameApplier::UseNameForVar(StringSlice* name, Var* var) {
+void NameApplier::UseNameForVar(const std::string* name, Var* var) {
   if (var->type == VarType::Name) {
-    assert(string_slices_are_equal(name, &var->name));
+    assert(*name == var->name);
   }
 
-  if (name && name->start) {
+  if (name) {
     var->type = VarType::Name;
-    var->name = dup_string_slice(*name);
+    var->name = *name;
   }
 }
 
@@ -177,20 +177,20 @@ Result NameApplier::UseNameForParamAndLocalVar(Func* func, Var* var) {
   }
 
   if (var->type == VarType::Name) {
-    assert(*name == string_slice_to_string(var->name));
+    assert(*name == var->name);
     return Result::Ok;
   }
 
   if (!name->empty()) {
     var->type = VarType::Name;
-    var->name = dup_string_slice(string_to_string_slice(*name));
-    return var->name.start ? Result::Ok : Result::Error;
+    var->name = *name;
+    return !var->name.empty() ? Result::Ok : Result::Error;
   }
   return Result::Ok;
 }
 
 Result NameApplier::BeginBlockExpr(Expr* expr) {
-  PushLabel(&expr->block->label);
+  PushLabel(expr->block->label);
   return Result::Ok;
 }
 
@@ -200,7 +200,7 @@ Result NameApplier::EndBlockExpr(Expr* expr) {
 }
 
 Result NameApplier::BeginLoopExpr(Expr* expr) {
-  PushLabel(&expr->loop->label);
+  PushLabel(expr->loop->label);
   return Result::Ok;
 }
 
@@ -210,13 +210,13 @@ Result NameApplier::EndLoopExpr(Expr* expr) {
 }
 
 Result NameApplier::OnBrExpr(Expr* expr) {
-  Label* label = FindLabelByVar(&expr->br.var);
+  const std::string* label = FindLabelByVar(&expr->br.var);
   UseNameForVar(label, &expr->br.var);
   return Result::Ok;
 }
 
 Result NameApplier::OnBrIfExpr(Expr* expr) {
-  Label* label = FindLabelByVar(&expr->br_if.var);
+  const std::string* label = FindLabelByVar(&expr->br_if.var);
   UseNameForVar(label, &expr->br_if.var);
   return Result::Ok;
 }
@@ -224,11 +224,11 @@ Result NameApplier::OnBrIfExpr(Expr* expr) {
 Result NameApplier::OnBrTableExpr(Expr* expr) {
   VarVector& targets = *expr->br_table.targets;
   for (Var& target : targets) {
-    Label* label = FindLabelByVar(&target);
+    const std::string* label = FindLabelByVar(&target);
     UseNameForVar(label, &target);
   }
 
-  Label* label = FindLabelByVar(&expr->br_table.default_target);
+  const std::string* label = FindLabelByVar(&expr->br_table.default_target);
   UseNameForVar(label, &expr->br_table.default_target);
   return Result::Ok;
 }
@@ -254,7 +254,7 @@ Result NameApplier::OnGetLocalExpr(Expr* expr) {
 }
 
 Result NameApplier::BeginIfExpr(Expr* expr) {
-  PushLabel(&expr->if_.true_->label);
+  PushLabel(expr->if_.true_->label);
   return Result::Ok;
 }
 

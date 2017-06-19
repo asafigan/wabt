@@ -50,20 +50,20 @@ static const char* GetOpcodeName(Opcode opcode) {
 
 Environment::Environment() : istream_(new OutputBuffer()) {}
 
-Index Environment::FindModuleIndex(StringSlice name) const {
-  auto iter = module_bindings_.find(string_slice_to_string(name));
+Index Environment::FindModuleIndex(const string_view& name) const {
+  auto iter = module_bindings_.find(name.to_string());
   if (iter == module_bindings_.end())
     return kInvalidIndex;
   return iter->second.index;
 }
 
-Module* Environment::FindModule(StringSlice name) {
+Module* Environment::FindModule(const string_view& name) {
   Index index = FindModuleIndex(name);
   return index == kInvalidIndex ? nullptr : modules_[index].get();
 }
 
-Module* Environment::FindRegisteredModule(StringSlice name) {
-  auto iter = registered_module_bindings_.find(string_slice_to_string(name));
+Module* Environment::FindRegisteredModule(const string_view& name) {
+  auto iter = registered_module_bindings_.find(name.to_string());
   if (iter == registered_module_bindings_.end())
     return nullptr;
   return modules_[iter->second.index].get();
@@ -94,8 +94,6 @@ FuncSignature::FuncSignature(Index param_count,
       result_types(result_types, result_types + result_count) {}
 
 Import::Import() : kind(ExternalKind::Func) {
-  WABT_ZERO_MEMORY(module_name);
-  WABT_ZERO_MEMORY(field_name);
   WABT_ZERO_MEMORY(func.sig_index);
 }
 
@@ -105,10 +103,8 @@ Import::Import(Import&& other) {
 
 Import& Import::operator=(Import&& other) {
   kind = other.kind;
-  module_name = other.module_name;
-  WABT_ZERO_MEMORY(other.module_name);
-  field_name = other.field_name;
-  WABT_ZERO_MEMORY(other.field_name);
+  module_name = std::move(other.module_name);
+  field_name = std::move(other.field_name);
   switch (kind) {
     case ExternalKind::Func:
       func.sig_index = other.func.sig_index;
@@ -131,46 +127,18 @@ Import& Import::operator=(Import&& other) {
   return *this;
 }
 
-Import::~Import() {
-  destroy_string_slice(&module_name);
-  destroy_string_slice(&field_name);
-}
-
-Export::Export(Export&& other)
-    : name(other.name), kind(other.kind), index(other.index) {
-  WABT_ZERO_MEMORY(other.name);
-}
-
-Export& Export::operator=(Export&& other) {
-  name = other.name;
-  kind = other.kind;
-  index = other.index;
-  WABT_ZERO_MEMORY(other.name);
-  return *this;
-}
-
-Export::~Export() {
-  destroy_string_slice(&name);
-}
-
 Module::Module(bool is_host)
     : memory_index(kInvalidIndex),
       table_index(kInvalidIndex),
-      is_host(is_host) {
-  WABT_ZERO_MEMORY(name);
-}
+      is_host(is_host) {}
 
-Module::Module(const StringSlice& name, bool is_host)
+Module::Module(const string_view& name, bool is_host)
     : name(name),
       memory_index(kInvalidIndex),
       table_index(kInvalidIndex),
       is_host(is_host) {}
 
-Module::~Module() {
-  destroy_string_slice(&name);
-}
-
-Export* Module::GetExport(StringSlice name) {
+Export* Module::GetExport(const string_view& name) {
   int field_index = export_bindings.FindIndex(name);
   if (field_index < 0)
     return nullptr;
@@ -183,7 +151,7 @@ DefinedModule::DefinedModule()
       istream_start(kInvalidIstreamOffset),
       istream_end(kInvalidIstreamOffset) {}
 
-HostModule::HostModule(const StringSlice& name) : Module(name, true) {}
+HostModule::HostModule(const string_view& name) : Module(name, true) {}
 
 Environment::MarkPoint Environment::Mark() {
   MarkPoint mark;
@@ -200,9 +168,9 @@ Environment::MarkPoint Environment::Mark() {
 void Environment::ResetToMarkPoint(const MarkPoint& mark) {
   // Destroy entries in the binding hash.
   for (size_t i = mark.modules_size; i < modules_.size(); ++i) {
-    const StringSlice* name = &modules_[i]->name;
-    if (!string_slice_is_empty(name))
-      module_bindings_.erase(string_slice_to_string(*name));
+    const std::string& name = modules_[i]->name;
+    if (!name.empty())
+      module_bindings_.erase(name);
   }
 
   // registered_module_bindings_ maps from an arbitrary name to a module index,
@@ -224,11 +192,10 @@ void Environment::ResetToMarkPoint(const MarkPoint& mark) {
   istream_->data.resize(mark.istream_size);
 }
 
-HostModule* Environment::AppendHostModule(StringSlice name) {
-  HostModule* module = new HostModule(dup_string_slice(name));
+HostModule* Environment::AppendHostModule(const string_view& name) {
+  HostModule* module = new HostModule(name);
   modules_.emplace_back(module);
-  registered_module_bindings_.emplace(string_slice_to_string(name),
-                                      Binding(modules_.size() - 1));
+  registered_module_bindings_.emplace(name, Binding(modules_.size() - 1));
   return module;
 }
 

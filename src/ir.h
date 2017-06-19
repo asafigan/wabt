@@ -37,9 +37,9 @@ enum class VarType {
 
 struct Var {
   explicit Var(Index index = kInvalidIndex);
-  explicit Var(const StringSlice& name);
+  explicit Var(const string_view& name);
   Var(Index index, const Location& loc);
-  Var(const StringSlice& name, const Location& loc);
+  Var(const string_view& name, const Location& loc);
   Var(Var&&);
   Var(const Var&);
   Var& operator =(const Var&);
@@ -50,12 +50,10 @@ struct Var {
   VarType type;
   union {
     Index index;
-    StringSlice name;
+    std::string name;
   };
 };
 typedef std::vector<Var> VarVector;
-
-typedef StringSlice Label;
 
 struct Const {
   // Struct tags to differentiate constructors.
@@ -131,7 +129,7 @@ struct Block {
   explicit Block(Expr* first);
   ~Block();
 
-  Label label;
+  std::string label;
   BlockSignature sig;
   Expr* first;
 };
@@ -209,7 +207,7 @@ struct Expr {
 };
 
 struct Exception {
-  StringSlice name;
+  std::string name;
   TypeVector sig;
   ~Exception() { destroy_string_slice(&name); }
 };
@@ -227,16 +225,12 @@ struct FuncSignature {
 };
 
 struct FuncType {
-  WABT_DISALLOW_COPY_AND_ASSIGN(FuncType);
-  FuncType();
-  ~FuncType();
-
   Index GetNumParams() const { return sig.GetNumParams(); }
   Index GetNumResults() const { return sig.GetNumResults(); }
   Type GetParamType(Index index) const { return sig.GetParamType(index); }
   Type GetResultType(Index index) const { return sig.GetResultType(index); }
 
-  StringSlice name;
+  std::string name;
   FuncSignature sig;
 };
 
@@ -270,7 +264,7 @@ struct Func {
   Index GetNumResults() const { return decl.GetNumResults(); }
   Index GetLocalIndex(const Var&) const;
 
-  StringSlice name;
+  std::string name;
   FuncDeclaration decl;
   TypeVector local_types;
   BindingHash param_bindings;
@@ -283,18 +277,16 @@ struct Global {
   Global();
   ~Global();
 
-  StringSlice name;
+  std::string name;
   Type type;
   bool mutable_;
   Expr* init_expr;
 };
 
 struct Table {
-  WABT_DISALLOW_COPY_AND_ASSIGN(Table);
   Table();
-  ~Table();
 
-  StringSlice name;
+  std::string name;
   Limits elem_limits;
 };
 
@@ -309,11 +301,9 @@ struct ElemSegment {
 };
 
 struct Memory {
-  WABT_DISALLOW_COPY_AND_ASSIGN(Memory);
   Memory();
-  ~Memory();
 
-  StringSlice name;
+  std::string name;
   Limits page_limits;
 };
 
@@ -333,8 +323,8 @@ struct Import {
   Import();
   ~Import();
 
-  StringSlice module_name;
-  StringSlice field_name;
+  std::string module_name;
+  std::string field_name;
   ExternalKind kind;
   union {
     // An imported func has the type Func so it can be more easily included in
@@ -349,11 +339,7 @@ struct Import {
 };
 
 struct Export {
-  WABT_DISALLOW_COPY_AND_ASSIGN(Export);
-  Export();
-  ~Export();
-
-  StringSlice name;
+  std::string name;
   ExternalKind kind;
   Var var;
 };
@@ -419,11 +405,11 @@ struct Module {
   Index GetGlobalIndex(const Var&) const;
   const Global* GetGlobal(const Var&) const;
   Global* GetGlobal(const Var&);
-  const Export* GetExport(const StringSlice&) const;
+  const Export* GetExport(const string_view&) const;
   Index GetExceptIndex(const Var&) const;
 
   Location loc;
-  StringSlice name;
+  std::string name;
   ModuleField* first_field;
   ModuleField* last_field;
 
@@ -484,7 +470,7 @@ struct ScriptModule {
     Module* text;
     struct {
       Location loc;
-      StringSlice name;
+      std::string name;
       char* data;
       size_t size;
     } binary, quoted;
@@ -497,9 +483,6 @@ enum class ActionType {
 };
 
 struct ActionInvoke {
-  WABT_DISALLOW_COPY_AND_ASSIGN(ActionInvoke);
-  ActionInvoke();
-
   ConstVector args;
 };
 
@@ -511,7 +494,7 @@ struct Action {
   Location loc;
   ActionType type;
   Var module_var;
-  StringSlice name;
+  std::string name;
   union {
     ActionInvoke* invoke;
     struct {} get;
@@ -549,15 +532,15 @@ struct Command {
   union {
     Module* module;
     Action* action;
-    struct { StringSlice module_name; Var var; } register_;
+    struct { std::string module_name; Var var; } register_;
     struct { Action* action; ConstVector* expected; } assert_return;
     struct {
       Action* action;
     } assert_return_canonical_nan, assert_return_arithmetic_nan;
-    struct { Action* action; StringSlice text; } assert_trap;
+    struct { Action* action; std::string text; } assert_trap;
     struct {
       ScriptModule* module;
-      StringSlice text;
+      std::string text;
     } assert_malformed, assert_invalid, assert_unlinkable,
         assert_uninstantiable;
   };

@@ -66,27 +66,27 @@ class BinaryReaderIR : public BinaryReaderNop {
 
   Result OnImportCount(Index count) override;
   Result OnImport(Index index,
-                  StringSlice module_name,
-                  StringSlice field_name) override;
+                  const string_view& module_name,
+                  const string_view& field_name) override;
   Result OnImportFunc(Index import_index,
-                      StringSlice module_name,
-                      StringSlice field_name,
+                      const string_view& module_name,
+                      const string_view& field_name,
                       Index func_index,
                       Index sig_index) override;
   Result OnImportTable(Index import_index,
-                       StringSlice module_name,
-                       StringSlice field_name,
+                       const string_view& module_name,
+                       const string_view& field_name,
                        Index table_index,
                        Type elem_type,
                        const Limits* elem_limits) override;
   Result OnImportMemory(Index import_index,
-                        StringSlice module_name,
-                        StringSlice field_name,
+                        const string_view& module_name,
+                        const string_view& field_name,
                         Index memory_index,
                         const Limits* page_limits) override;
   Result OnImportGlobal(Index import_index,
-                        StringSlice module_name,
-                        StringSlice field_name,
+                        const string_view& module_name,
+                        const string_view& field_name,
                         Index global_index,
                         Type type,
                         bool mutable_) override;
@@ -111,7 +111,7 @@ class BinaryReaderIR : public BinaryReaderNop {
   Result OnExport(Index index,
                   ExternalKind kind,
                   Index item_index,
-                  StringSlice name) override;
+                  const string_view& name) override;
 
   Result OnStartFunction(Index func_index) override;
 
@@ -178,12 +178,12 @@ class BinaryReaderIR : public BinaryReaderNop {
 
   Result OnFunctionNamesCount(Index num_functions) override;
   Result OnFunctionName(Index function_index,
-                        StringSlice function_name) override;
+                        const string_view& function_name) override;
   Result OnLocalNameLocalCount(Index function_index,
                                Index num_locals) override;
   Result OnLocalName(Index function_index,
                      Index local_index,
-                     StringSlice local_name) override;
+                     const string_view& local_name) override;
 
   Result OnInitExprF32ConstExpr(Index index, uint32_t value) override;
   Result OnInitExprF64ConstExpr(Index index, uint64_t value) override;
@@ -311,23 +311,23 @@ Result BinaryReaderIR::OnImportCount(Index count) {
 }
 
 Result BinaryReaderIR::OnImport(Index index,
-                                 StringSlice module_name,
-                                 StringSlice field_name) {
+                                const string_view& module_name,
+                                const string_view& field_name) {
   ModuleField* field = module->AppendField();
   field->loc = GetLocation();
   field->type = ModuleFieldType::Import;
   field->import = new Import();
 
   Import* import = field->import;
-  import->module_name = dup_string_slice(module_name);
-  import->field_name = dup_string_slice(field_name);
+  import->module_name = module_name.to_string();
+  import->field_name = field_name.to_string();
   module->imports.push_back(import);
   return Result::Ok;
 }
 
 Result BinaryReaderIR::OnImportFunc(Index import_index,
-                                    StringSlice module_name,
-                                    StringSlice field_name,
+                                    const string_view& module_name,
+                                    const string_view& field_name,
                                     Index func_index,
                                     Index sig_index) {
   assert(import_index == module->imports.size() - 1);
@@ -345,8 +345,8 @@ Result BinaryReaderIR::OnImportFunc(Index import_index,
 }
 
 Result BinaryReaderIR::OnImportTable(Index import_index,
-                                     StringSlice module_name,
-                                     StringSlice field_name,
+                                     const string_view& module_name,
+                                     const string_view& field_name,
                                      Index table_index,
                                      Type elem_type,
                                      const Limits* elem_limits) {
@@ -361,8 +361,8 @@ Result BinaryReaderIR::OnImportTable(Index import_index,
 }
 
 Result BinaryReaderIR::OnImportMemory(Index import_index,
-                                      StringSlice module_name,
-                                      StringSlice field_name,
+                                      const string_view& module_name,
+                                      const string_view& field_name,
                                       Index memory_index,
                                       const Limits* page_limits) {
   assert(import_index == module->imports.size() - 1);
@@ -376,8 +376,8 @@ Result BinaryReaderIR::OnImportMemory(Index import_index,
 }
 
 Result BinaryReaderIR::OnImportGlobal(Index import_index,
-                                      StringSlice module_name,
-                                      StringSlice field_name,
+                                      const string_view& module_name,
+                                      const string_view& field_name,
                                       Index global_index,
                                       Type type,
                                       bool mutable_) {
@@ -480,14 +480,14 @@ Result BinaryReaderIR::OnExportCount(Index count) {
 Result BinaryReaderIR::OnExport(Index index,
                                 ExternalKind kind,
                                 Index item_index,
-                                StringSlice name) {
+                                const string_view& name) {
   ModuleField* field = module->AppendField();
   field->loc = GetLocation();
   field->type = ModuleFieldType::Export;
   field->export_ = new Export();
 
   Export* export_ = field->export_;
-  export_->name = dup_string_slice(name);
+  export_->name = name.to_string();
   switch (kind) {
     case ExternalKind::Func:
       assert(item_index < module->funcs.size());
@@ -838,19 +838,19 @@ Result BinaryReaderIR::OnFunctionNamesCount(Index count) {
   return Result::Ok;
 }
 
-Result BinaryReaderIR::OnFunctionName(Index index, StringSlice name) {
-  if (string_slice_is_empty(&name))
+Result BinaryReaderIR::OnFunctionName(Index index, const string_view& name) {
+  if (name.empty())
     return Result::Ok;
 
   Func* func = module->funcs[index];
-  std::string dollar_name = std::string("$") + string_slice_to_string(name);
+  std::string dollar_name = std::string("$") + name.to_string();
   int counter = 1;
   std::string orig_name = dollar_name;
   while (module->func_bindings.count(dollar_name) != 0) {
     dollar_name = orig_name + "." + std::to_string(counter++);
   }
-  func->name = dup_string_slice(string_to_string_slice(dollar_name));
-  module->func_bindings.emplace(dollar_name, Binding(index));
+  func->name = dollar_name;
+  module->func_bindings.emplace(func->name, Binding(index));
   return Result::Ok;
 }
 
@@ -905,8 +905,8 @@ Result BinaryReaderIR::OnInitExprI64ConstExpr(Index index, uint64_t value) {
 
 Result BinaryReaderIR::OnLocalName(Index func_index,
                                    Index local_index,
-                                   StringSlice name) {
-  if (string_slice_is_empty(&name))
+                                   const string_view& name) {
+  if (name.empty())
     return Result::Ok;
 
   Func* func = module->funcs[func_index];
@@ -922,8 +922,7 @@ Result BinaryReaderIR::OnLocalName(Index func_index,
     bindings = &func->local_bindings;
     index = local_index - num_params;
   }
-  bindings->emplace(std::string("$") + string_slice_to_string(name),
-                    Binding(index));
+  bindings->emplace(std::string("$") + name.to_string(), Binding(index));
   return Result::Ok;
 }
 

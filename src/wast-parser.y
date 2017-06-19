@@ -55,10 +55,6 @@
     RELOCATE_STACK(YYLTYPE, yylsa, *(ls), old_size, *(new_size));            \
   } while (0)
 
-#define DUPTEXT(dst, src)                                \
-  (dst).start = wabt_strndup((src).start, (src).length); \
-  (dst).length = (src).length
-
 #define YYLLOC_DEFAULT(Current, Rhs, N)                       \
   do                                                          \
     if (N) {                                                  \
@@ -77,22 +73,19 @@
     }                                                         \
   while (0)
 
-#define CHECK_END_LABEL(loc, begin_label, end_label)                       \
-  do {                                                                     \
-    if (!string_slice_is_empty(&(end_label))) {                            \
-      if (string_slice_is_empty(&(begin_label))) {                         \
-        wast_parser_error(&loc, lexer, parser,                             \
-                          "unexpected label \"" PRIstringslice "\"",       \
-                          WABT_PRINTF_STRING_SLICE_ARG(end_label));        \
-      } else if (!string_slices_are_equal(&(begin_label), &(end_label))) { \
-        wast_parser_error(&loc, lexer, parser,                             \
-                          "mismatching label \"" PRIstringslice            \
-                          "\" != \"" PRIstringslice "\"",                  \
-                          WABT_PRINTF_STRING_SLICE_ARG(begin_label),       \
-                          WABT_PRINTF_STRING_SLICE_ARG(end_label));        \
-      }                                                                    \
-      destroy_string_slice(&(end_label));                                  \
-    }                                                                      \
+#define CHECK_END_LABEL(loc, begin_label, end_label)                      \
+  do {                                                                    \
+    if (end_label) {                                                      \
+      if (!begin_label.empty()) {                                         \
+        wast_parser_error(&loc, lexer, parser, "unexpected label \"%s\"", \
+                          end_label->c_str());                            \
+      } else if (begin_label == *end_label) {                             \
+        wast_parser_error(&loc, lexer, parser,                            \
+                          "mismatching label \"%s\" != \"%s\"",           \
+                          begin_label.c_str(), end_label->c_str());       \
+      }                                                                   \
+      delete end_label;                                                   \
+    }                                                                     \
   } while (0)
 
 #define CHECK_ALLOW_EXCEPTIONS(loc, opcode_name)                      \
@@ -114,6 +107,13 @@ static bool is_power_of_two(uint32_t x) {
   return x && ((x & (x - 1)) == 0);
 }
 
+template <typename T>
+typename std::remove_reference<T>::type&& move_and_delete(T* t) noexcept {
+  auto value = std::move(*t);
+  delete t;
+  return std::move(value);
+}
+
 static ExprList join_exprs1(Location* loc, Expr* expr1);
 static ExprList join_exprs2(Location* loc, ExprList* expr1, Expr* expr2);
 static void append_expr_list(ExprList* expr_list, ExprList* expr);
@@ -123,9 +123,7 @@ static Result parse_const(Type type,
                           const char* s,
                           const char* end,
                           Const* out);
-static void dup_text_list(TextList* text_list,
-                          char** out_data,
-                          size_t* out_size);
+static std::string dup_text_list(const TextList& text_list);
 
 static void reverse_bindings(TypeVector*, BindingHash*);
 
@@ -183,10 +181,10 @@ class BinaryErrorHandlerModule : public BinaryErrorHandler {
 %token EOF 0 "EOF"
 
 %type<opcode> BINARY COMPARE CONVERT LOAD STORE UNARY
-%type<text> ALIGN_EQ_NAT OFFSET_EQ_NAT TEXT VAR
+%type<text_view> ALIGN_EQ_NAT OFFSET_EQ_NAT TEXT VAR
 %type<type> SELECT
 %type<type> CONST VALUE_TYPE
-%type<literal> NAT INT FLOAT
+%type<literal_view> NAT INT FLOAT
 
 %type<action> action
 %type<block> block
@@ -225,9 +223,8 @@ class BinaryErrorHandlerModule : public BinaryErrorHandler {
 
 /* These non-terminals use the types below that have destructors, but the
  * memory is shared with the lexer, so should not be destroyed. */
-%destructor {} ALIGN_EQ_NAT OFFSET_EQ_NAT TEXT VAR NAT INT FLOAT
-%destructor { destroy_string_slice(&$$); } <text>
-%destructor { destroy_string_slice(&$$.text); } <literal>
+%destructor { delete $$; } <text>
+%destructor { delete $$; } <literal>
 %destructor { delete $$; } <action>
 %destructor { delete $$; } <block>
 %destructor { delete $$; } <command>
@@ -263,14 +260,14 @@ class BinaryErrorHandlerModule : public BinaryErrorHandler {
 text_list :
     TEXT {
       TextListNode* node = new TextListNode();
-      DUPTEXT(node->text, $1);
+      node->text = $1.to_string();
       node->next = nullptr;
       $$.first = $$.last = node;
     }
   | text_list TEXT {
       $$ = $1;
       TextListNode* node = new TextListNode();
-      DUPTEXT(node->text, $2);
+      node->text = $2.to_string();
       node->next = nullptr;
       $$.last->next = node;
       $$.last = node;
@@ -284,16 +281,12 @@ text_list_opt :
 quoted_text :
     TEXT {
       TextListNode node;
-      node.text = $1;
+      node.text = $1.to_string();
       node.next = nullptr;
       TextList text_list;
       text_list.first = &node;
       text_list.last = &node;
-      char* data;
-      size_t size;
-      dup_text_list(&text_list, &data, &size);
-      $$.start = data;
-      $$.length = size;
+      $$ = new std::string(dup_text_list(text_list));
     }
 ;
 
@@ -337,7 +330,7 @@ func_sig :
       $$ = $6;
       $$->param_types.insert($$->param_types.begin(), $4);
       // Ignore bind_var.
-      destroy_string_slice(&$3);
+      delete $3;
     }
 ;
 
@@ -382,27 +375,22 @@ type_use :
 
 nat :
     NAT {
-      if (WABT_FAILED(parse_uint64($1.text.start,
-                                        $1.text.start + $1.text.length, &$$))) {
-        wast_parser_error(&@1, lexer, parser,
-                          "invalid int " PRIstringslice "\"",
-                          WABT_PRINTF_STRING_SLICE_ARG($1.text));
+      if (WABT_FAILED(parse_uint64($1.text.begin(), $1.text.end(), &$$))) {
+        wast_parser_error(&@1, lexer, parser, "invalid int " PRIstringview "\"",
+                          WABT_PRINTF_STRING_VIEW_ARG($1.text));
       }
     }
 ;
 
 literal :
     NAT {
-      $$.type = $1.type;
-      DUPTEXT($$.text, $1.text);
+      $$ = new Literal($1);
     }
   | INT {
-      $$.type = $1.type;
-      DUPTEXT($$.text, $1.text);
+      $$ = new Literal($1);
     }
   | FLOAT {
-      $$.type = $1.type;
-      DUPTEXT($$.text, $1.text);
+      $$ = new Literal($1);
     }
 ;
 
@@ -412,9 +400,7 @@ var :
       $$->loc = @1;
     }
   | VAR {
-      StringSlice name;
-      DUPTEXT(name, $1);
-      $$ = new Var(name);
+      $$ = new Var($1);
       $$->loc = @1;
     }
 ;
@@ -422,20 +408,19 @@ var_list :
     /* empty */ { $$ = new VarVector(); }
   | var_list var {
       $$ = $1;
-      $$->emplace_back(std::move(*$2));
-      delete $2;
+      $$->emplace_back(move_and_delete($2));
     }
 ;
 bind_var_opt :
-    /* empty */ { WABT_ZERO_MEMORY($$); }
+    /* empty */ { $$ = nullptr; }
   | bind_var
 ;
 bind_var :
-    VAR { DUPTEXT($$, $1); }
+    VAR { $$ = new std::string($1.to_string()); }
 ;
 
 labeling_opt :
-    /* empty */ %prec LOW { WABT_ZERO_MEMORY($$); }
+    /* empty */ %prec LOW { $$ = nullptr; }
   | bind_var
 ;
 
@@ -443,11 +428,11 @@ offset_opt :
     /* empty */ { $$ = 0; }
   | OFFSET_EQ_NAT {
       uint64_t offset64;
-      if (WABT_FAILED(parse_int64($1.start, $1.start + $1.length, &offset64,
+      if (WABT_FAILED(parse_int64($1.begin(), $1.end(), &offset64,
                                   ParseIntType::SignedAndUnsigned))) {
         wast_parser_error(&@1, lexer, parser,
-                          "invalid offset \"" PRIstringslice "\"",
-                          WABT_PRINTF_STRING_SLICE_ARG($1));
+                          "invalid offset \"" PRIstringview "\"",
+                          WABT_PRINTF_STRING_VIEW_ARG($1));
       }
       if (offset64 > UINT32_MAX) {
         wast_parser_error(&@1, lexer, parser,
@@ -459,11 +444,11 @@ offset_opt :
 align_opt :
     /* empty */ { $$ = USE_NATURAL_ALIGNMENT; }
   | ALIGN_EQ_NAT {
-      if (WABT_FAILED(parse_int32($1.start, $1.start + $1.length, &$$,
+      if (WABT_FAILED(parse_int32($1.begin(), $1.end(), &$$,
                                   ParseIntType::UnsignedOnly))) {
         wast_parser_error(&@1, lexer, parser,
-                          "invalid alignment \"" PRIstringslice "\"",
-                          WABT_PRINTF_STRING_SLICE_ARG($1));
+                          "invalid alignment \"" PRIstringview "\"",
+                          WABT_PRINTF_STRING_VIEW_ARG($1));
       }
 
       if ($$ != WABT_USE_NATURAL_ALIGNMENT && !is_power_of_two($$)) {
@@ -492,47 +477,38 @@ plain_instr :
       $$ = Expr::CreateSelect();
     }
   | BR var {
-      $$ = Expr::CreateBr(std::move(*$2));
-      delete $2;
+      $$ = Expr::CreateBr(move_and_delete($2));
     }
   | BR_IF var {
-      $$ = Expr::CreateBrIf(std::move(*$2));
-      delete $2;
+      $$ = Expr::CreateBrIf(move_and_delete($2));
     }
   | BR_TABLE var_list var {
-      $$ = Expr::CreateBrTable($2, std::move(*$3));
+      $$ = Expr::CreateBrTable($2, move_and_delete($3));
       delete $3;
     }
   | RETURN {
       $$ = Expr::CreateReturn();
     }
   | CALL var {
-      $$ = Expr::CreateCall(std::move(*$2));
-      delete $2;
+      $$ = Expr::CreateCall(move_and_delete($2));
     }
   | CALL_INDIRECT var {
-      $$ = Expr::CreateCallIndirect(std::move(*$2));
-      delete $2;
+      $$ = Expr::CreateCallIndirect(move_and_delete($2));
     }
   | GET_LOCAL var {
-      $$ = Expr::CreateGetLocal(std::move(*$2));
-      delete $2;
+      $$ = Expr::CreateGetLocal(move_and_delete($2));
     }
   | SET_LOCAL var {
-      $$ = Expr::CreateSetLocal(std::move(*$2));
-      delete $2;
+      $$ = Expr::CreateSetLocal(move_and_delete($2));
     }
   | TEE_LOCAL var {
-      $$ = Expr::CreateTeeLocal(std::move(*$2));
-      delete $2;
+      $$ = Expr::CreateTeeLocal(move_and_delete($2));
     }
   | GET_GLOBAL var {
-      $$ = Expr::CreateGetGlobal(std::move(*$2));
-      delete $2;
+      $$ = Expr::CreateGetGlobal(move_and_delete($2));
     }
   | SET_GLOBAL var {
-      $$ = Expr::CreateSetGlobal(std::move(*$2));
-      delete $2;
+      $$ = Expr::CreateSetGlobal(move_and_delete($2));
     }
   | LOAD offset_opt align_opt {
       $$ = Expr::CreateLoad($1, $3, $2);
@@ -544,13 +520,14 @@ plain_instr :
       Const const_;
       WABT_ZERO_MEMORY(const_);
       const_.loc = @1;
-      if (WABT_FAILED(parse_const($1, $2.type, $2.text.start,
-                                  $2.text.start + $2.text.length, &const_))) {
+      string_view view($2->text);
+      if (WABT_FAILED(
+              parse_const($1, $2->type, view.begin(), view.end(), &const_))) {
         wast_parser_error(&@2, lexer, parser,
-                          "invalid literal \"" PRIstringslice "\"",
-                          WABT_PRINTF_STRING_SLICE_ARG($2.text));
+                          "invalid literal \"" PRIstringview "\"",
+                          WABT_PRINTF_STRING_VIEW_ARG(view));
       }
-      delete [] $2.text.start;
+      delete $2;
       $$ = Expr::CreateConst(const_);
     }
   | UNARY {
@@ -572,34 +549,32 @@ plain_instr :
       $$ = Expr::CreateGrowMemory();
     }
   | throw_check var {
-      $$ = Expr::CreateThrow(std::move(*$2));
-      delete $2;
+      $$ = Expr::CreateThrow(move_and_delete($2));
     }
   | rethrow_check var {
-      $$ = Expr::CreateRethrow(std::move(*$2));
-      delete $2;
+      $$ = Expr::CreateRethrow(move_and_delete($2));
     }
 ;
 
 block_instr :
     BLOCK labeling_opt block END labeling_opt {
       $$ = Expr::CreateBlock($3);
-      $$->block->label = $2;
+      $$->block->label = move_and_delete($2);
       CHECK_END_LABEL(@5, $$->block->label, $5);
     }
   | LOOP labeling_opt block END labeling_opt {
       $$ = Expr::CreateLoop($3);
-      $$->loop->label = $2;
+      $$->loop->label = move_and_delete($2);
       CHECK_END_LABEL(@5, $$->loop->label, $5);
     }
   | IF labeling_opt block END labeling_opt {
       $$ = Expr::CreateIf($3, nullptr);
-      $$->if_.true_->label = $2;
+      $$->if_.true_->label = move_and_delete($2);
       CHECK_END_LABEL(@5, $$->if_.true_->label, $5);
     }
   | IF labeling_opt block ELSE labeling_opt instr_list END labeling_opt {
       $$ = Expr::CreateIf($3, $6.first);
-      $$->if_.true_->label = $2;
+      $$->if_.true_->label = move_and_delete($2);
       CHECK_END_LABEL(@5, $$->if_.true_->label, $5);
       CHECK_END_LABEL(@8, $$->if_.true_->label, $8);
     }
@@ -628,9 +603,8 @@ block :
 
 plain_catch :
     CATCH var instr_list {
-      $$ = new Catch(std::move(*$2), $3.first);
+      $$ = new Catch(move_and_delete($2), $3.first);
       $$->loc = @1;
-      delete $2;
     }
   ;
 plain_catch_all :
@@ -666,23 +640,23 @@ expr1 :
     }
   | BLOCK labeling_opt block {
       Expr* expr = Expr::CreateBlock($3);
-      expr->block->label = $2;
+      expr->block->label = move_and_delete($2);
       $$ = join_exprs1(&@1, expr);
     }
   | LOOP labeling_opt block {
       Expr* expr = Expr::CreateLoop($3);
-      expr->loop->label = $2;
+      expr->loop->label = move_and_delete($2);
       $$ = join_exprs1(&@1, expr);
     }
   | IF labeling_opt if_block {
       $$ = $3;
       Expr* if_ = $3.last;
       assert(if_->type == ExprType::If);
-      if_->if_.true_->label = $2;
+      if_->if_.true_->label = move_and_delete($2);
     }
   | try_check labeling_opt try_ {
       Block* block = $3->try_block.block;
-      block->label = $2;
+      block->label = move_and_delete($2);
       $$ = join_exprs1(&@1, $3);
     }
   ;
@@ -722,7 +696,7 @@ catch_sexp_list :
     }
   ;
 
-    
+
 if_block :
     block_sig if_block {
       Expr* if_ = $2.last;
@@ -774,7 +748,7 @@ throw_check :
 
 try_check :
     TRY {
-      CHECK_ALLOW_EXCEPTIONS(&@1, "try");      
+      CHECK_ALLOW_EXCEPTIONS(&@1, "try");
     }
   ;
 
@@ -804,9 +778,8 @@ const_expr :
 exception :
     LPAR EXCEPT bind_var_opt value_type_list RPAR {
       $$ = new Exception();
-      $$->name = $3;
-      $$->sig = std::move(*$4);
-      delete $4;
+      $$->name = move_and_delete($3);
+      $$->sig = move_and_delete($4);
     }
   ;
 exception_field :
@@ -816,7 +789,7 @@ exception_field :
       $$->except = $1;
     }
   ;
-    
+
 /* Functions */
 func :
     LPAR FUNC bind_var_opt func_fields RPAR {
@@ -824,10 +797,10 @@ func :
       ModuleField* main = $$.first;
       main->loc = @2;
       if (main->type == ModuleFieldType::Func) {
-        main->func->name = $3;
+        main->func->name = move_and_delete($3);
       } else {
         assert(main->type == ModuleFieldType::Import);
-        main->import->func->name = $3;
+        main->import->func->name = move_and_delete($3);
       }
     }
 ;
@@ -837,8 +810,7 @@ func_fields :
       ModuleField* field = new ModuleField(ModuleFieldType::Func);
       field->func = $2;
       field->func->decl.has_func_type = true;
-      field->func->decl.type_var = std::move(*$1);
-      delete $1;
+      field->func->decl.type_var = move_and_delete($1);
       $$.first = $$.last = field;
     }
   | func_fields_body {
@@ -853,8 +825,7 @@ func_fields :
       field->import->kind = ExternalKind::Func;
       field->import->func = $3;
       field->import->func->decl.has_func_type = true;
-      field->import->func->decl.type_var = std::move(*$2);
-      delete $2;
+      field->import->func->decl.type_var = move_and_delete($2);
       $$.first = $$.last = field;
     }
   | inline_import func_fields_import {
@@ -892,9 +863,8 @@ func_fields_import1 :
     }
   | LPAR PARAM bind_var VALUE_TYPE RPAR func_fields_import1 {
       $$ = $6;
-      $$->param_bindings.emplace(string_slice_to_string($3),
+      $$->param_bindings.emplace(move_and_delete($3),
                                  Binding(@3, $$->decl.sig.param_types.size()));
-      destroy_string_slice(&$3);
       $$->decl.sig.param_types.insert($$->decl.sig.param_types.begin(), $4);
     }
 ;
@@ -926,9 +896,8 @@ func_fields_body1 :
     }
   | LPAR PARAM bind_var VALUE_TYPE RPAR func_fields_body1 {
       $$ = $6;
-      $$->param_bindings.emplace(string_slice_to_string($3),
+      $$->param_bindings.emplace(move_and_delete($3),
                                  Binding(@3, $$->decl.sig.param_types.size()));
-      destroy_string_slice(&$3);
       $$->decl.sig.param_types.insert($$->decl.sig.param_types.begin(), $4);
     }
 ;
@@ -962,9 +931,8 @@ func_body1 :
     }
   | LPAR LOCAL bind_var VALUE_TYPE RPAR func_body1 {
       $$ = $6;
-      $$->local_bindings.emplace(string_slice_to_string($3),
+      $$->local_bindings.emplace(move_and_delete($3),
                                  Binding(@3, $$->local_types.size()));
-      destroy_string_slice(&$3);
       $$->local_types.insert($$->local_types.begin(), $4);
     }
 ;
@@ -983,11 +951,9 @@ elem :
       $$ = new ModuleField(ModuleFieldType::ElemSegment);
       $$->loc = @2;
       $$->elem_segment = new ElemSegment();
-      $$->elem_segment->table_var = std::move(*$3);
-      delete $3;
+      $$->elem_segment->table_var = move_and_delete($3);
       $$->elem_segment->offset = $4.first;
-      $$->elem_segment->vars = std::move(*$5);
-      delete $5;
+      $$->elem_segment->vars = move_and_delete($5);
     }
   | LPAR ELEM offset var_list RPAR {
       $$ = new ModuleField(ModuleFieldType::ElemSegment);
@@ -997,8 +963,7 @@ elem :
       $$->elem_segment->table_var.type = VarType::Index;
       $$->elem_segment->table_var.index = 0;
       $$->elem_segment->offset = $3.first;
-      $$->elem_segment->vars = std::move(*$4);
-      delete $4;
+      $$->elem_segment->vars = move_and_delete($4);
     }
 ;
 
@@ -1008,10 +973,10 @@ table :
       ModuleField* main = $$.first;
       main->loc = @2;
       if (main->type == ModuleFieldType::Table) {
-        main->table->name = $3;
+        main->table->name = move_and_delete($3);
       } else {
         assert(main->type == ModuleFieldType::Import);
-        main->import->table->name = $3;
+        main->import->table->name = move_and_delete($3);
       }
     }
 ;
@@ -1051,8 +1016,7 @@ table_fields :
       elem_segment->table_var = Var(kInvalidIndex);
       elem_segment->offset = Expr::CreateConst(Const(Const::I32(), 0));
       elem_segment->offset->loc = @3;
-      elem_segment->vars = std::move(*$4);
-      delete $4;
+      elem_segment->vars = move_and_delete($4);
       $$.first = table_field;
       $$.last = table_field->next = elem_field;
     }
@@ -1063,10 +1027,15 @@ data :
       $$ = new ModuleField(ModuleFieldType::DataSegment);
       $$->loc = @2;
       $$->data_segment = new DataSegment();
-      $$->data_segment->memory_var = std::move(*$3);
-      delete $3;
+      $$->data_segment->memory_var = move_and_delete($3);
       $$->data_segment->offset = $4.first;
-      dup_text_list(&$5, &$$->data_segment->data, &$$->data_segment->size);
+      // TODO(binji): write data to char/size buffer.
+      #if 0
+      dup_text_list(&$4, &$$->data_segment->data, &$$->data_segment->size);
+      #else
+      $$->data_segment->data = nullptr;
+      $$->data_segment->size = 0;
+      #endif
       destroy_text_list(&$5);
     }
   | LPAR DATA offset text_list_opt RPAR {
@@ -1077,7 +1046,13 @@ data :
       $$->data_segment->memory_var.type = VarType::Index;
       $$->data_segment->memory_var.index = 0;
       $$->data_segment->offset = $3.first;
+      // TODO(binji): write data to char/size buffer.
+      #if 0
       dup_text_list(&$4, &$$->data_segment->data, &$$->data_segment->size);
+      #else
+      $$->data_segment->data = nullptr;
+      $$->data_segment->size = 0;
+      #endif
       destroy_text_list(&$4);
     }
 ;
@@ -1088,10 +1063,10 @@ memory :
       ModuleField* main = $$.first;
       main->loc = @2;
       if (main->type == ModuleFieldType::Memory) {
-        main->memory->name = $3;
+        main->memory->name = move_and_delete($3);
       } else {
         assert(main->type == ModuleFieldType::Import);
-        main->import->memory->name = $3;
+        main->import->memory->name = move_and_delete($3);
       }
     }
 ;
@@ -1125,7 +1100,13 @@ memory_fields :
       data_segment->memory_var = Var(kInvalidIndex);
       data_segment->offset = Expr::CreateConst(Const(Const::I32(), 0));
       data_segment->offset->loc = @2;
+      // TODO(binji):
+      #if 0
       dup_text_list(&$3, &data_segment->data, &data_segment->size);
+      #else
+      data_segment->data = nullptr;
+      data_segment->size = 0 ;
+      #endif
       destroy_text_list(&$3);
       uint32_t byte_size = WABT_ALIGN_UP_TO_PAGE(data_segment->size);
       uint32_t page_size = WABT_BYTES_TO_PAGES(byte_size);
@@ -1147,10 +1128,10 @@ global :
       ModuleField* main = $$.first;
       main->loc = @2;
       if (main->type == ModuleFieldType::Global) {
-        main->global->name = $3;
+        main->global->name = move_and_delete($3);
       } else {
         assert(main->type == ModuleFieldType::Import);
-        main->import->global->name = $3;
+        main->import->global->name = move_and_delete($3);
       }
     }
 ;
@@ -1187,36 +1168,34 @@ import_desc :
       $$ = new Import();
       $$->kind = ExternalKind::Func;
       $$->func = new Func();
-      $$->func->name = $3;
+      $$->func->name = move_and_delete($3);
       $$->func->decl.has_func_type = true;
-      $$->func->decl.type_var = std::move(*$4);
-      delete $4;
+      $$->func->decl.type_var = move_and_delete($4);
     }
   | LPAR FUNC bind_var_opt func_sig RPAR {
       $$ = new Import();
       $$->kind = ExternalKind::Func;
       $$->func = new Func();
-      $$->func->name = $3;
-      $$->func->decl.sig = std::move(*$4);
-      delete $4;
+      $$->func->name = move_and_delete($3);
+      $$->func->decl.sig = move_and_delete($4);
     }
   | LPAR TABLE bind_var_opt table_sig RPAR {
       $$ = new Import();
       $$->kind = ExternalKind::Table;
       $$->table = $4;
-      $$->table->name = $3;
+      $$->table->name = move_and_delete($3);
     }
   | LPAR MEMORY bind_var_opt memory_sig RPAR {
       $$ = new Import();
       $$->kind = ExternalKind::Memory;
       $$->memory = $4;
-      $$->memory->name = $3;
+      $$->memory->name = move_and_delete($3);
     }
   | LPAR GLOBAL bind_var_opt global_type RPAR {
       $$ = new Import();
       $$->kind = ExternalKind::Global;
       $$->global = $4;
-      $$->global->name = $3;
+      $$->global->name = move_and_delete($3);
     }
   | exception {
       $$ = new Import();
@@ -1230,16 +1209,16 @@ import :
       $$ = new ModuleField(ModuleFieldType::Import);
       $$->loc = @2;
       $$->import = $5;
-      $$->import->module_name = $3;
-      $$->import->field_name = $4;
+      $$->import->module_name = move_and_delete($3);
+      $$->import->field_name = move_and_delete($4);
     }
 ;
 
 inline_import :
     LPAR IMPORT quoted_text quoted_text RPAR {
       $$ = new Import();
-      $$->module_name = $3;
-      $$->field_name = $4;
+      $$->module_name = move_and_delete($3);
+      $$->field_name = move_and_delete($4);
     }
 ;
 
@@ -1247,32 +1226,27 @@ export_desc :
     LPAR FUNC var RPAR {
       $$ = new Export();
       $$->kind = ExternalKind::Func;
-      $$->var = std::move(*$3);
-      delete $3;
+      $$->var = move_and_delete($3);
     }
   | LPAR TABLE var RPAR {
       $$ = new Export();
       $$->kind = ExternalKind::Table;
-      $$->var = std::move(*$3);
-      delete $3;
+      $$->var = move_and_delete($3);
     }
   | LPAR MEMORY var RPAR {
       $$ = new Export();
       $$->kind = ExternalKind::Memory;
-      $$->var = std::move(*$3);
-      delete $3;
+      $$->var = move_and_delete($3);
     }
   | LPAR GLOBAL var RPAR {
       $$ = new Export();
       $$->kind = ExternalKind::Global;
-      $$->var = std::move(*$3);
-      delete $3;
+      $$->var = move_and_delete($3);
     }
   | LPAR EXCEPT var RPAR {
       $$ = new Export();
       $$->kind = ExternalKind::Except;
-      $$->var = std::move(*$3);
-      delete $3;
+      $$->var = move_and_delete($3);
     }
 ;
 export :
@@ -1280,14 +1254,14 @@ export :
       $$ = new ModuleField(ModuleFieldType::Export);
       $$->loc = @2;
       $$->export_ = $4;
-      $$->export_->name = $3;
+      $$->export_->name = move_and_delete($3);
     }
 ;
 
 inline_export :
     LPAR EXPORT quoted_text RPAR {
       $$ = new Export();
-      $$->name = $3;
+      $$->name = move_and_delete($3);
     }
 ;
 
@@ -1299,16 +1273,14 @@ type_def :
       $$ = new ModuleField(ModuleFieldType::FuncType);
       $$->loc = @2;
       $$->func_type = new FuncType();
-      $$->func_type->sig = std::move(*$3);
-      delete $3;
+      $$->func_type->sig = move_and_delete($3);
     }
   | LPAR TYPE bind_var func_type RPAR {
       $$ = new ModuleField(ModuleFieldType::FuncType);
       $$->loc = @2;
       $$->func_type = new FuncType();
-      $$->func_type->name = $3;
-      $$->func_type->sig = std::move(*$4);
-      delete $4;
+      $$->func_type->name = move_and_delete($3);
+      $$->func_type->sig = move_and_delete($4);
     }
 ;
 
@@ -1316,8 +1288,7 @@ start :
     LPAR START var RPAR {
       $$ = new ModuleField(ModuleFieldType::Start);
       $$->loc = @2;
-      $$->start = std::move(*$3);
-      delete $3;
+      $$->start = move_and_delete($3);
     }
 ;
 
@@ -1368,7 +1339,6 @@ module :
                        &error_handler, $$);
         $$->name = $1->binary.name;
         $$->loc = $1->binary.loc;
-        WABT_ZERO_MEMORY($1->binary.name);
       }
       delete $1;
     }
@@ -1386,9 +1356,7 @@ script_var_opt :
       $$ = new Var(kInvalidIndex);
     }
   | VAR {
-      StringSlice name;
-      DUPTEXT(name, $1);
-      $$ = new Var(name);
+      $$ = new Var($1);
     }
 ;
 
@@ -1397,7 +1365,7 @@ script_module :
       $$ = new ScriptModule();
       $$->type = ScriptModule::Type::Text;
       $$->text = $4;
-      $$->text->name = $3;
+      $$->text->name = move_and_delete($3);
       $$->text->loc = @2;
 
       // Resolve func type variables where the signature was not specified
@@ -1414,17 +1382,23 @@ script_module :
   | LPAR MODULE bind_var_opt BIN text_list RPAR {
       $$ = new ScriptModule();
       $$->type = ScriptModule::Type::Binary;
-      $$->binary.name = $3;
+      $$->binary.name = move_and_delete($3);
       $$->binary.loc = @2;
+       // TODO(binji)
+      #if 0
       dup_text_list(&$5, &$$->binary.data, &$$->binary.size);
+      #endif
       destroy_text_list(&$5);
     }
   | LPAR MODULE bind_var_opt QUOTE text_list RPAR {
       $$ = new ScriptModule();
       $$->type = ScriptModule::Type::Quoted;
-      $$->quoted.name = $3;
+      $$->quoted.name = move_and_delete($3);
       $$->quoted.loc = @2;
+       // TODO(binji)
+      #if 0
       dup_text_list(&$5, &$$->quoted.data, &$$->quoted.size);
+      #endif
       destroy_text_list(&$5);
     }
 ;
@@ -1433,21 +1407,18 @@ action :
     LPAR INVOKE script_var_opt quoted_text const_list RPAR {
       $$ = new Action();
       $$->loc = @2;
-      $$->module_var = std::move(*$3);
-      delete $3;
+      $$->module_var = move_and_delete($3);
       $$->type = ActionType::Invoke;
-      $$->name = $4;
+      $$->name = move_and_delete($4);
       $$->invoke = new ActionInvoke();
-      $$->invoke->args = std::move(*$5);
-      delete $5;
+      $$->invoke->args = move_and_delete($5);
     }
   | LPAR GET script_var_opt quoted_text RPAR {
       $$ = new Action();
       $$->loc = @2;
-      $$->module_var = std::move(*$3);
-      delete $3;
+      $$->module_var = move_and_delete($3);
       $$->type = ActionType::Get;
-      $$->name = $4;
+      $$->name = move_and_delete($4);
     }
 ;
 
@@ -1456,25 +1427,25 @@ assertion :
       $$ = new Command();
       $$->type = CommandType::AssertMalformed;
       $$->assert_malformed.module = $3;
-      $$->assert_malformed.text = $4;
+      $$->assert_malformed.text = move_and_delete($4);
     }
   | LPAR ASSERT_INVALID script_module quoted_text RPAR {
       $$ = new Command();
       $$->type = CommandType::AssertInvalid;
       $$->assert_invalid.module = $3;
-      $$->assert_invalid.text = $4;
+      $$->assert_invalid.text = move_and_delete($4);
     }
   | LPAR ASSERT_UNLINKABLE script_module quoted_text RPAR {
       $$ = new Command();
       $$->type = CommandType::AssertUnlinkable;
       $$->assert_unlinkable.module = $3;
-      $$->assert_unlinkable.text = $4;
+      $$->assert_unlinkable.text = move_and_delete($4);
     }
   | LPAR ASSERT_TRAP script_module quoted_text RPAR {
       $$ = new Command();
       $$->type = CommandType::AssertUninstantiable;
       $$->assert_uninstantiable.module = $3;
-      $$->assert_uninstantiable.text = $4;
+      $$->assert_uninstantiable.text = move_and_delete($4);
     }
   | LPAR ASSERT_RETURN action const_list RPAR {
       $$ = new Command();
@@ -1496,13 +1467,13 @@ assertion :
       $$ = new Command();
       $$->type = CommandType::AssertTrap;
       $$->assert_trap.action = $3;
-      $$->assert_trap.text = $4;
+      $$->assert_trap.text = move_and_delete($4);
     }
   | LPAR ASSERT_EXHAUSTION action quoted_text RPAR {
       $$ = new Command();
       $$->type = CommandType::AssertExhaustion;
       $$->assert_trap.action = $3;
-      $$->assert_trap.text = $4;
+      $$->assert_trap.text = move_and_delete($4);
     }
 ;
 
@@ -1521,9 +1492,8 @@ cmd :
   | LPAR REGISTER quoted_text script_var_opt RPAR {
       $$ = new Command();
       $$->type = CommandType::Register;
-      $$->register_.module_name = $3;
-      $$->register_.var = std::move(*$4);
-      delete $4;
+      $$->register_.module_name = move_and_delete($3);
+      $$->register_.var = move_and_delete($4);
       $$->register_.var.loc = @4;
     }
 ;
@@ -1541,13 +1511,14 @@ cmd_list :
 const :
     LPAR CONST literal RPAR {
       $$.loc = @2;
-      if (WABT_FAILED(parse_const($2, $3.type, $3.text.start,
-                                  $3.text.start + $3.text.length, &$$))) {
+      string_view view($3->text);
+      if (WABT_FAILED(
+              parse_const($2, $3->type, view.begin(), view.end(), &$$))) {
         wast_parser_error(&@3, lexer, parser,
-                          "invalid literal \"" PRIstringslice "\"",
-                          WABT_PRINTF_STRING_SLICE_ARG($3.text));
+                          "invalid literal \"" PRIstringview "\"",
+                          WABT_PRINTF_STRING_VIEW_ARG(view));
       }
-      delete [] $3.text.start;
+      delete[] $3;
     }
 ;
 const_list :
@@ -1564,8 +1535,7 @@ script :
     }
   | cmd_list {
       $$ = new Script();
-      $$->commands = std::move(*$1);
-      delete $1;
+      $$->commands = move_and_delete($1);
 
       int last_module_index = -1;
       for (size_t i = 0; i < $$->commands.size(); ++i) {
@@ -1577,11 +1547,10 @@ script :
 
             /* Wire up module name bindings. */
             Module* module = command.module;
-            if (module->name.length == 0)
+            if (module->name.empty())
               continue;
 
-            $$->module_bindings.emplace(string_slice_to_string(module->name),
-                                        Binding(module->loc, i));
+            $$->module_bindings.emplace(module->name, Binding(module->loc, i));
             break;
           }
 
@@ -1698,78 +1667,70 @@ Result parse_const(Type type,
   return Result::Error;
 }
 
-size_t copy_string_contents(StringSlice* text, char* dest) {
-  const char* src = text->start + 1;
-  const char* end = text->start + text->length - 1;
+void append_escaped_string(std::string* dest, const std::string& src) {
+  assert(src.size() >= 2);
+  size_t i = 1;
+  size_t end = src.size() - 1;
 
-  char* dest_start = dest;
-
-  while (src < end) {
-    if (*src == '\\') {
-      src++;
-      switch (*src) {
+  while (i < end) {
+    if (src[i] == '\\') {
+      i++;
+      switch (src[i]) {
         case 'n':
-          *dest++ = '\n';
+          dest->push_back('\n');
           break;
         case 'r':
-          *dest++ = '\r';
+          dest->push_back('\r');
           break;
         case 't':
-          *dest++ = '\t';
+          dest->push_back('\t');
           break;
         case '\\':
-          *dest++ = '\\';
+          dest->push_back('\\');
           break;
         case '\'':
-          *dest++ = '\'';
+          dest->push_back('\'');
           break;
         case '\"':
-          *dest++ = '\"';
+          dest->push_back('\"');
           break;
         default: {
           // The string should be validated already, so we know this is a hex
           // sequence.
           uint32_t hi;
           uint32_t lo;
-          if (WABT_SUCCEEDED(parse_hexdigit(src[0], &hi)) &&
-              WABT_SUCCEEDED(parse_hexdigit(src[1], &lo))) {
-            *dest++ = (hi << 4) | lo;
+          if (WABT_SUCCEEDED(parse_hexdigit(src[i], &hi)) &&
+              WABT_SUCCEEDED(parse_hexdigit(src[i + 11], &lo))) {
+            dest->push_back((hi << 4) | lo);
           } else {
             assert(0);
           }
-          src++;
+          i++;
           break;
         }
       }
-      src++;
+      i++;
     } else {
-      *dest++ = *src++;
+      dest->push_back(src[i++]);
     }
   }
-  /* return the data length */
-  return dest - dest_start;
 }
 
-void dup_text_list(TextList* text_list, char** out_data, size_t* out_size) {
-  /* walk the linked list to see how much total space is needed */
+std::string dup_text_list(const TextList& text_list) {
+  std::string result;
+  // Walk the linked list to see how much total space is needed.
   size_t total_size = 0;
-  for (TextListNode* node = text_list->first; node; node = node->next) {
-    /* Always allocate enough space for the entire string including the escape
-     * characters. It will only get shorter, and this way we only have to
-     * iterate through the string once. */
-    const char* src = node->text.start + 1;
-    const char* end = node->text.start + node->text.length - 1;
-    size_t size = (end > src) ? (end - src) : 0;
-    total_size += size;
+  for (TextListNode* node = text_list.first; node; node = node->next) {
+    // Always allocate enough space for the entire string including the escape
+    // characters. It will only get shorter, and this way we only have to
+    // iterate through the string once.
+    total_size += node->text.size();
   }
-  char* result = new char [total_size];
-  char* dest = result;
-  for (TextListNode* node = text_list->first; node; node = node->next) {
-    size_t actual_size = copy_string_contents(&node->text, dest);
-    dest += actual_size;
+  result.reserve(total_size);
+  for (TextListNode* node = text_list.first; node; node = node->next) {
+    append_escaped_string(&result, node->text);
   }
-  *out_data = result;
-  *out_size = dest - result;
+  return result;
 }
 
 void reverse_bindings(TypeVector* types, BindingHash* bindings) {
@@ -1818,7 +1779,7 @@ void append_module_fields(Module* module, ModuleField* first) {
   Index main_index = kInvalidIndex;
 
   for (ModuleField* field = first; field; field = field->next) {
-    StringSlice* name = nullptr;
+    std::string* name = nullptr;
     BindingHash* bindings = nullptr;
     Index index = kInvalidIndex;
 
@@ -1934,7 +1895,7 @@ void append_module_fields(Module* module, ModuleField* first) {
         break;
 
       case ModuleFieldType::Except:
-        name = &field->except->name;        
+        name = &field->except->name;
         bindings = &module->except_bindings;
         index = module->excepts.size();
         module->excepts.push_back(field->except);
@@ -1956,10 +1917,8 @@ void append_module_fields(Module* module, ModuleField* first) {
 
     if (name && bindings) {
       // Exported names are allowed to be empty; other names aren't.
-      if (bindings == &module->export_bindings ||
-          !string_slice_is_empty(name)) {
-        bindings->emplace(string_slice_to_string(*name),
-                          Binding(field->loc, index));
+      if (bindings == &module->export_bindings || !name->empty()) {
+        bindings->emplace(*name, Binding(field->loc, index));
       }
     }
   }

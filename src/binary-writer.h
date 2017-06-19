@@ -26,6 +26,7 @@ namespace wabt {
 class Writer;
 struct Module;
 struct Script;
+class string_view;
 
 struct WriteBinaryOptions {
   Stream* log_stream = nullptr;
@@ -55,8 +56,7 @@ Offset write_fixed_u32_leb128_raw(uint8_t* data, uint8_t* end, uint32_t value);
 void write_type(Stream* stream, Type type);
 
 void write_str(Stream* stream,
-               const char* s,
-               size_t length,
+               const string_view*,
                const char* desc,
                PrintChars print_chars = PrintChars::No);
 

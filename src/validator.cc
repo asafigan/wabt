@@ -292,8 +292,7 @@ Result Validator::CheckLocalVar(const Var* var, Type* out_type) {
   }
 
   if (var->type == VarType::Name) {
-    PrintError(&var->loc, "undefined local variable \"" PRIstringslice "\"",
-               WABT_PRINTF_STRING_SLICE_ARG(var->name));
+    PrintError(&var->loc, "undefined local variable \"%s\"", var->name.c_str());
   } else {
     PrintError(&var->loc, "local variable out of range (max %" PRIindex ")",
                max_index);
@@ -938,8 +937,8 @@ const TypeVector* Validator::CheckInvoke(const Action* action) {
 
   const Export* export_ = module->GetExport(action->name);
   if (!export_) {
-    PrintError(&action->loc, "unknown function export \"" PRIstringslice "\"",
-               WABT_PRINTF_STRING_SLICE_ARG(action->name));
+    PrintError(&action->loc, "unknown function export \"%s\"",
+               action->name.c_str());
     return nullptr;
   }
 
@@ -976,8 +975,8 @@ Result Validator::CheckGet(const Action* action, Type* out_type) {
 
   const Export* export_ = module->GetExport(action->name);
   if (!export_) {
-    PrintError(&action->loc, "unknown global export \"" PRIstringslice "\"",
-               WABT_PRINTF_STRING_SLICE_ARG(action->name));
+    PrintError(&action->loc, "unknown global export \"%s\"",
+               action->name.c_str());
     return Result::Error;
   }
 

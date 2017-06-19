@@ -25,7 +25,7 @@ bool FuncSignature::operator==(const FuncSignature& rhs) const {
   return param_types == rhs.param_types && result_types == rhs.result_types;
 }
 
-const Export* Module::GetExport(const StringSlice& name) const {
+const Export* Module::GetExport(const string_view& name) const {
   Index index = export_bindings.FindIndex(name);
   if (index >= exports.size())
     return nullptr;
@@ -204,7 +204,7 @@ Var::Var(Index index) : type(VarType::Index), index(index) {
   WABT_ZERO_MEMORY(loc);
 }
 
-Var::Var(const StringSlice& name) : type(VarType::Name), name(name) {
+Var::Var(const string_view& name) : type(VarType::Name), name(name) {
   WABT_ZERO_MEMORY(loc);
 }
 
@@ -220,7 +220,7 @@ Var::Var(Var&& rhs) : loc(rhs.loc), type(rhs.type) {
   if (rhs.type == VarType::Index) {
     index = rhs.index;
   } else {
-    name = rhs.name;
+    name = std::move(rhs.name);
     rhs = Var(kInvalidIndex);
   }
 }
@@ -229,7 +229,7 @@ Var::Var(const Var& rhs) : loc(rhs.loc), type(rhs.type) {
   if (rhs.type == VarType::Index) {
     index = rhs.index;
   } else {
-    name = dup_string_slice(rhs.name);
+    name = rhs.name;
   }
 }
 
@@ -239,7 +239,7 @@ Var& Var::operator =(Var&& rhs) {
   if (rhs.type == VarType::Index) {
     index = rhs.index;
   } else {
-    name = rhs.name;
+    name = std::move(rhs.name);
     rhs = Var(kInvalidIndex);
   }
   return *this;
@@ -251,14 +251,15 @@ Var& Var::operator =(const Var& rhs) {
   if (rhs.type == VarType::Index) {
     index = rhs.index;
   } else {
-    name = dup_string_slice(rhs.name);
+    name = rhs.name;
   }
   return *this;
 }
 
 Var::~Var() {
+  typedef std::string string;
   if (type == VarType::Name)
-    destroy_string_slice(&name);
+    name.~string();
 }
 
 Const::Const(I32, uint32_t value) : type(Type::I32), u32(value) {
@@ -297,17 +298,11 @@ Const::Const(F64 tag, uint64_t value, const Location& loc_)
   loc = loc_;
 }
 
+Block::Block() : first(nullptr) {}
 
-Block::Block(): first(nullptr) {
-  WABT_ZERO_MEMORY(label);
-}
-
-Block::Block(Expr* first) : first(first) {
-  WABT_ZERO_MEMORY(label);
-}
+Block::Block(Expr* first) : first(first) {}
 
 Block::~Block() {
-  destroy_string_slice(&label);
   DestroyExprList(first);
 }
 
@@ -613,44 +608,25 @@ Expr* Expr::CreateUnreachable() {
   return new Expr(ExprType::Unreachable);
 }
 
-FuncType::FuncType() {
-  WABT_ZERO_MEMORY(name);
-}
-
-FuncType::~FuncType() {
-  destroy_string_slice(&name);
-}
-
 FuncDeclaration::FuncDeclaration()
     : has_func_type(false), type_var(kInvalidIndex) {}
 
 FuncDeclaration::~FuncDeclaration() {}
 
-Func::Func() : first_expr(nullptr) {
-  WABT_ZERO_MEMORY(name);
-}
+Func::Func() : first_expr(nullptr) {}
 
 Func::~Func() {
-  destroy_string_slice(&name);
   DestroyExprList(first_expr);
 }
 
-Global::Global() : type(Type::Void), mutable_(false), init_expr(nullptr) {
-  WABT_ZERO_MEMORY(name);
-}
+Global::Global() : type(Type::Void), mutable_(false), init_expr(nullptr) {}
 
 Global::~Global() {
-  destroy_string_slice(&name);
   DestroyExprList(init_expr);
 }
 
 Table::Table() {
-  WABT_ZERO_MEMORY(name);
   WABT_ZERO_MEMORY(elem_limits);
-}
-
-Table::~Table() {
-  destroy_string_slice(&name);
 }
 
 ElemSegment::ElemSegment() : table_var(kInvalidIndex), offset(nullptr) {}
@@ -667,22 +643,12 @@ DataSegment::~DataSegment() {
 }
 
 Memory::Memory() {
-  WABT_ZERO_MEMORY(name);
   WABT_ZERO_MEMORY(page_limits);
 }
 
-Memory::~Memory() {
-  destroy_string_slice(&name);
-}
-
-Import::Import() : kind(ExternalKind::Func), func(nullptr) {
-  WABT_ZERO_MEMORY(module_name);
-  WABT_ZERO_MEMORY(field_name);
-}
+Import::Import() : kind(ExternalKind::Func), func(nullptr) {}
 
 Import::~Import() {
-  destroy_string_slice(&module_name);
-  destroy_string_slice(&field_name);
   switch (kind) {
     case ExternalKind::Func:
       delete func;
@@ -700,22 +666,6 @@ Import::~Import() {
       delete except;
       break;
   }
-}
-
-Export::Export() {
-  WABT_ZERO_MEMORY(name);
-}
-
-Export::~Export() {
-  destroy_string_slice(&name);
-}
-
-void destroy_memory(Memory* memory) {
-  destroy_string_slice(&memory->name);
-}
-
-void destroy_table(Table* table) {
-  destroy_string_slice(&table->name);
 }
 
 ModuleField::ModuleField() : ModuleField(ModuleFieldType::Start) {}
@@ -773,12 +723,9 @@ Module::Module()
       num_global_imports(0),
       start(0) {
   WABT_ZERO_MEMORY(loc);
-  WABT_ZERO_MEMORY(name);
 }
 
 Module::~Module() {
-  destroy_string_slice(&name);
-
   ModuleField* field = first_field;
   while (field) {
     ModuleField* next_field = field->next;
@@ -790,30 +737,27 @@ Module::~Module() {
 ScriptModule::ScriptModule() : type(ScriptModule::Type::Text), text(nullptr) {}
 
 ScriptModule::~ScriptModule() {
+  typedef std::string string;
   switch (type) {
     case ScriptModule::Type::Text:
       delete text;
       break;
     case ScriptModule::Type::Binary:
-      destroy_string_slice(&binary.name);
+      binary.name.~string();
       delete [] binary.data;
       break;
     case ScriptModule::Type::Quoted:
-      destroy_string_slice(&quoted.name);
+      quoted.name.~string();
       delete [] binary.data;
       break;
   }
 }
 
-ActionInvoke::ActionInvoke() {}
-
 Action::Action() : type(ActionType::Get), module_var(kInvalidIndex) {
   WABT_ZERO_MEMORY(loc);
-  WABT_ZERO_MEMORY(name);
 }
 
 Action::~Action() {
-  destroy_string_slice(&name);
   switch (type) {
     case ActionType::Invoke:
       delete invoke;
@@ -826,6 +770,7 @@ Action::~Action() {
 Command::Command() : type(CommandType::Module), module(nullptr) {}
 
 Command::~Command() {
+  typedef std::string string;
   switch (type) {
     case CommandType::Module:
       delete module;
@@ -834,25 +779,25 @@ Command::~Command() {
       delete action;
       break;
     case CommandType::Register:
-      destroy_string_slice(&register_.module_name);
+      register_.module_name.~string();
       register_.var.~Var();
       break;
     case CommandType::AssertMalformed:
       delete assert_malformed.module;
-      destroy_string_slice(&assert_malformed.text);
+      assert_malformed.text.~string();
       break;
     case CommandType::AssertInvalid:
     case CommandType::AssertInvalidNonBinary:
       delete assert_invalid.module;
-      destroy_string_slice(&assert_invalid.text);
+      assert_invalid.text.~string();
       break;
     case CommandType::AssertUnlinkable:
       delete assert_unlinkable.module;
-      destroy_string_slice(&assert_unlinkable.text);
+      assert_unlinkable.text.~string();
       break;
     case CommandType::AssertUninstantiable:
       delete assert_uninstantiable.module;
-      destroy_string_slice(&assert_uninstantiable.text);
+      assert_uninstantiable.text.~string();
       break;
     case CommandType::AssertReturn:
       delete assert_return.action;
@@ -867,7 +812,7 @@ Command::~Command() {
     case CommandType::AssertTrap:
     case CommandType::AssertExhaustion:
       delete assert_trap.action;
-      destroy_string_slice(&assert_trap.text);
+      assert_trap.text.~string();
       break;
   }
 }

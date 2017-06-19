@@ -28,19 +28,17 @@
 
 namespace wabt {
 
-static StringSlice strip_extension(const char* s) {
-  /* strip .json or .wasm, but leave other extensions, e.g.:
-   *
-   * s = "foo", => "foo"
-   * s = "foo.json" => "foo"
-   * s = "foo.wasm" => "foo"
-   * s = "foo.bar" => "foo.bar"
-   */
+
+static string_view strip_extension(const char* s) {
+  // Strip .json or .wasm, but leave other extensions, e.g.:
+  //
+  // s = "foo", => "foo"
+  // s = "foo.json" => "foo"
+  // s = "foo.wasm" => "foo"
+  // s = "foo.bar" => "foo.bar"
+  //
   if (!s) {
-    StringSlice result;
-    result.start = nullptr;
-    result.length = 0;
-    return result;
+    return string_view();
   }
 
   size_t slen = strlen(s);
@@ -48,34 +46,27 @@ static StringSlice strip_extension(const char* s) {
   if (!ext_start)
     ext_start = s + slen;
 
-  StringSlice result;
-  result.start = s;
-
   if (strcmp(ext_start, ".json") == 0 || strcmp(ext_start, ".wasm") == 0) {
-    result.length = ext_start - s;
+    return string_view(s, ext_start - s);
   } else {
-    result.length = slen;
+    return string_view(s, slen);
   }
-  return result;
 }
 
-static StringSlice get_basename(const char* s) {
-  /* strip everything up to and including the last slash, e.g.:
-   *
-   * s = "/foo/bar/baz", => "baz"
-   * s = "/usr/local/include/stdio.h", => "stdio.h"
-   * s = "foo.bar", => "foo.bar"
-   */
+static string_view get_basename(const char* s) {
+  // Strip everything up to and including the last slash, e.g.:
+  //
+  // s = "/foo/bar/baz", => "baz"
+  // s = "/usr/local/include/stdio.h", => "stdio.h"
+  // s = "foo.bar", => "foo.bar"
+  //
   size_t slen = strlen(s);
   const char* start = s;
   const char* last_slash = strrchr(s, '/');
   if (last_slash)
     start = last_slash + 1;
 
-  StringSlice result;
-  result.start = start;
-  result.length = s + slen - start;
-  return result;
+  return string_view(start, s + slen - start);
 }
 
 namespace {
@@ -92,7 +83,7 @@ class BinaryWriterSpec {
   void WriteString(const char* s);
   void WriteKey(const char* key);
   void WriteSeparator();
-  void WriteEscapedStringSlice(StringSlice ss);
+  void WriteEscapedStringSlice(const string_view& ss);
   void WriteCommandType(const Command& command);
   void WriteLocation(const Location* loc);
   void WriteVar(const Var* var);
@@ -103,12 +94,12 @@ class BinaryWriterSpec {
   void WriteActionResultType(Script* script, const Action* action);
   void WriteModule(char* filename, const Module* module);
   void WriteScriptModule(char* filename, const ScriptModule* script_module);
-  void WriteInvalidModule(const ScriptModule* module, StringSlice text);
+  void WriteInvalidModule(const ScriptModule* module, const string_view& text);
   void WriteCommands(Script* script);
 
   MemoryStream json_stream_;
-  StringSlice source_filename_;
-  StringSlice module_filename_noext_;
+  std::string source_filename_;
+  std::string module_filename_noext_;
   bool write_modules_ = false; /* Whether to write the modules files. */
   const WriteBinarySpecOptions* spec_options_ = nullptr;
   Result result_ = Result::Ok;
@@ -126,21 +117,20 @@ const char* BinaryWriterSpec::kWastExtension = ".wast";
 BinaryWriterSpec::BinaryWriterSpec(const char* source_filename,
                                    const WriteBinarySpecOptions* spec_options)
     : spec_options_(spec_options) {
-  source_filename_.start = source_filename;
-  source_filename_.length = strlen(source_filename);
+  source_filename_ = source_filename;
   module_filename_noext_ = strip_extension(spec_options_->json_filename
                                                ? spec_options_->json_filename
-                                               : source_filename);
+                                               : source_filename)
+                               .to_string();
   write_modules_ = !!spec_options_->json_filename;
 }
 
 char* BinaryWriterSpec::GetModuleFilename(const char* extension) {
-  size_t buflen = module_filename_noext_.length + 20;
+  size_t buflen = module_filename_noext_.size() + 20;
   char* str = new char[buflen];
   size_t length =
-      wabt_snprintf(str, buflen, PRIstringslice ".%" PRIzd "%s",
-                    WABT_PRINTF_STRING_SLICE_ARG(module_filename_noext_),
-                    num_modules_, extension);
+      wabt_snprintf(str, buflen, "%s.%" PRIzd "%s",
+                    module_filename_noext_.c_str(), num_modules_, extension);
   ConvertBackslashToSlash(str, length);
   return str;
 }
@@ -157,10 +147,9 @@ void BinaryWriterSpec::WriteSeparator() {
   json_stream_.Writef(", ");
 }
 
-void BinaryWriterSpec::WriteEscapedStringSlice(StringSlice ss) {
+void BinaryWriterSpec::WriteEscapedStringSlice(const string_view& ss) {
   json_stream_.WriteChar('"');
-  for (size_t i = 0; i < ss.length; ++i) {
-    uint8_t c = ss.start[i];
+  for (uint8_t c : ss) {
     if (c < 0x20 || c == '\\' || c == '"' || c > 0x7f) {
       json_stream_.Writef("\\u%04x", c);
     } else {
@@ -370,7 +359,7 @@ void BinaryWriterSpec::WriteScriptModule(char* filename,
 }
 
 void BinaryWriterSpec::WriteInvalidModule(const ScriptModule* module,
-                                          StringSlice text) {
+                                          const string_view& text) {
   const char* extension = "";
   const char* module_type = "";
   switch (module->type) {
@@ -431,7 +420,7 @@ void BinaryWriterSpec::WriteCommands(Script* script) {
         char* filename = GetModuleFilename(kWasmExtension);
         WriteLocation(&module->loc);
         WriteSeparator();
-        if (module->name.start) {
+        if (!module->name.empty()) {
           WriteKey("name");
           WriteEscapedStringSlice(module->name);
           WriteSeparator();

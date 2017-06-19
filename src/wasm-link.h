@@ -22,6 +22,7 @@
 
 #include "binary.h"
 #include "common.h"
+#include "string-view.h"
 
 namespace wabt {
 namespace link {
@@ -29,8 +30,8 @@ namespace link {
 class LinkerInputBinary;
 
 struct FunctionImport {
-  StringSlice module_name;
-  StringSlice name;
+  std::string module_name;
+  std::string name;
   Index sig_index;
   bool active; /* Is this import present in the linked binary */
   Index relocated_function_index;
@@ -39,8 +40,8 @@ struct FunctionImport {
 };
 
 struct GlobalImport {
-  StringSlice module_name;
-  StringSlice name;
+  std::string module_name;
+  std::string name;
   Type type;
   bool mutable_;
 };
@@ -54,13 +55,13 @@ struct DataSegment {
 
 struct Export {
   ExternalKind kind;
-  StringSlice name;
+  std::string name;
   Index index;
 };
 
 struct SectionDataCustom {
   /* Reference to string data stored in the containing InputBinary */
-  StringSlice name;
+  string_view name;
 };
 
 struct Section {

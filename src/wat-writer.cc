@@ -68,10 +68,12 @@ struct ExprTree {
 };
 
 struct Label {
-  Label(LabelType label_type, StringSlice name, const BlockSignature& sig)
+  Label(LabelType label_type,
+        const string_view& name,
+        const BlockSignature& sig)
       : name(name), label_type(label_type), sig(sig) {}
 
-  StringSlice name;
+  std::string name;
   LabelType label_type;
   const BlockSignature& sig;  // Share with Expr.
 };
@@ -102,14 +104,14 @@ class WatWriter {
   void WriteCloseNewline();
   void WriteCloseSpace();
   void WriteString(const std::string& str, NextChar next_char);
-  void WriteStringSlice(const StringSlice* str, NextChar next_char);
-  bool WriteStringSliceOpt(const StringSlice* str, NextChar next_char);
-  void WriteName(const StringSlice* str, NextChar next_char);
-  void WriteNameOrIndex(const StringSlice* str,
+  void WriteStringView(const string_view& str, NextChar next_char);
+  bool WriteStringViewOpt(const string_view& str, NextChar next_char);
+  void WriteName(const string_view& str, NextChar next_char);
+  void WriteNameOrIndex(const string_view& str,
                         Index index,
                         NextChar next_char);
   void WriteQuotedData(const void* data, size_t length);
-  void WriteQuotedStringSlice(const StringSlice* str, NextChar next_char);
+  void WriteQuotedStringView(const string_view& str, NextChar next_char);
   void WriteVar(const Var* var, NextChar next_char);
   void WriteBrVar(const Var* var, NextChar next_char);
   void WriteType(Type type, NextChar next_char);
@@ -293,28 +295,27 @@ void WatWriter::WriteString(const std::string& str, NextChar next_char) {
   WritePuts(str.c_str(), next_char);
 }
 
-void WatWriter::WriteStringSlice(const StringSlice* str, NextChar next_char) {
-  Writef(PRIstringslice, WABT_PRINTF_STRING_SLICE_ARG(*str));
+void WatWriter::WriteStringView(const string_view& str, NextChar next_char) {
+  Writef(PRIstringview, WABT_PRINTF_STRING_VIEW_ARG(str));
   next_char_ = next_char;
 }
 
-bool WatWriter::WriteStringSliceOpt(const StringSlice* str,
-                                    NextChar next_char) {
-  if (str->start)
-    WriteStringSlice(str, next_char);
-  return !!str->start;
+bool WatWriter::WriteStringViewOpt(const string_view& str, NextChar next_char) {
+  if (!str.empty())
+    WriteStringView(str, next_char);
+  return !!str.empty();
 }
 
-void WatWriter::WriteName(const StringSlice* str, NextChar next_char) {
+void WatWriter::WriteName(const string_view& str, NextChar next_char) {
   // Debug names must begin with a $ for for wast file to be valid
-  assert(str->length > 0 && str->start[0] == '$');
-  WriteStringSlice(str, next_char);
+  assert(!str.empty() && str[0] == '$');
+  WriteStringView(str, next_char);
 }
 
-void WatWriter::WriteNameOrIndex(const StringSlice* str,
+void WatWriter::WriteNameOrIndex(const string_view& str,
                                  Index index,
                                  NextChar next_char) {
-  if (str->start)
+  if (!str.empty())
     WriteName(str, next_char);
   else
     Writef("(;%u;)", index);
@@ -339,9 +340,9 @@ void WatWriter::WriteQuotedData(const void* data, size_t length) {
   next_char_ = NextChar::Space;
 }
 
-void WatWriter::WriteQuotedStringSlice(const StringSlice* str,
-                                       NextChar next_char) {
-  WriteQuotedData(str->start, str->length);
+void WatWriter::WriteQuotedStringView(const string_view& str,
+                                      NextChar next_char) {
+  WriteQuotedData(str.begin(), str.size());
   next_char_ = next_char;
 }
 
@@ -350,7 +351,7 @@ void WatWriter::WriteVar(const Var* var, NextChar next_char) {
     Writef("%" PRIindex, var->index);
     next_char_ = next_char;
   } else {
-    WriteName(&var->name, next_char);
+    WriteName(var->name, next_char);
   }
 }
 
@@ -364,7 +365,7 @@ void WatWriter::WriteBrVar(const Var* var, NextChar next_char) {
     }
     next_char_ = next_char;
   } else {
-    WriteStringSlice(&var->name, next_char);
+    WriteStringView(var->name, next_char);
   }
 }
 
@@ -394,7 +395,7 @@ void WatWriter::WriteBeginBlock(LabelType label_type,
                                 const Block* block,
                                 const char* text) {
   WritePutsSpace(text);
-  bool has_label = WriteStringSliceOpt(&block->label, NextChar::Space);
+  bool has_label = WriteStringViewOpt(block->label, NextChar::Space);
   WriteTypes(block->sig, "result");
   if (!has_label)
     Writef(" ;; label = @%" PRIindex, GetLabelStackSize());
@@ -620,7 +621,7 @@ Label* WatWriter::GetLabel(const Var* var) {
   if (var->type == VarType::Name) {
     for (Index i = GetLabelStackSize(); i > 0; --i) {
       Label* label = &label_stack_[i - 1];
-      if (string_slices_are_equal(&label->name, &var->name))
+      if (label->name == var->name)
         return label;
     }
   } else if (var->index < GetLabelStackSize()) {
@@ -867,7 +868,7 @@ void WatWriter::WriteTypeBindings(const char* prefix,
 
 void WatWriter::WriteFunc(const Module* module, const Func* func) {
   WriteOpenSpace("func");
-  WriteNameOrIndex(&func->name, func_index_, NextChar::Space);
+  WriteNameOrIndex(func->name, func_index_, NextChar::Space);
   WriteInlineExport(func_to_export_map_[func_index_]);
   if (func->decl.has_func_type) {
     WriteOpenSpace("type");
@@ -883,7 +884,7 @@ void WatWriter::WriteFunc(const Module* module, const Func* func) {
   }
   WriteNewline(NO_FORCE_NEWLINE);
   label_stack_.clear();
-  label_stack_.emplace_back(LabelType::Func, empty_string_slice(),
+  label_stack_.emplace_back(LabelType::Func, string_view(),
                             func->decl.sig.result_types);
   current_func_ = func;
   if (options_->fold_exprs) {
@@ -899,7 +900,7 @@ void WatWriter::WriteFunc(const Module* module, const Func* func) {
 
 void WatWriter::WriteBeginGlobal(const Global* global) {
   WriteOpenSpace("global");
-  WriteNameOrIndex(&global->name, global_index_, NextChar::Space);
+  WriteNameOrIndex(global->name, global_index_, NextChar::Space);
   WriteInlineExport(global_to_export_map_[global_index_]);
   if (global->mutable_) {
     WriteOpenSpace("mut");
@@ -925,7 +926,7 @@ void WatWriter::WriteLimits(const Limits* limits) {
 
 void WatWriter::WriteTable(const Table* table) {
   WriteOpenSpace("table");
-  WriteNameOrIndex(&table->name, table_index_, NextChar::Space);
+  WriteNameOrIndex(table->name, table_index_, NextChar::Space);
   WriteInlineExport(table_to_export_map_[table_index_]);
   WriteLimits(&table->elem_limits);
   WritePutsSpace("anyfunc");
@@ -943,7 +944,7 @@ void WatWriter::WriteElemSegment(const ElemSegment* segment) {
 
 void WatWriter::WriteMemory(const Memory* memory) {
   WriteOpenSpace("memory");
-  WriteNameOrIndex(&memory->name, memory_index_, NextChar::Space);
+  WriteNameOrIndex(memory->name, memory_index_, NextChar::Space);
   WriteInlineExport(memory_to_export_map_[memory_index_]);
   WriteLimits(&memory->page_limits);
   WriteCloseNewline();
@@ -959,12 +960,12 @@ void WatWriter::WriteDataSegment(const DataSegment* segment) {
 
 void WatWriter::WriteImport(const Import* import) {
   WriteOpenSpace("import");
-  WriteQuotedStringSlice(&import->module_name, NextChar::Space);
-  WriteQuotedStringSlice(&import->field_name, NextChar::Space);
+  WriteQuotedStringView(import->module_name, NextChar::Space);
+  WriteQuotedStringView(import->field_name, NextChar::Space);
   switch (import->kind) {
     case ExternalKind::Func:
       WriteOpenSpace("func");
-      WriteNameOrIndex(&import->func->name, func_index_++, NextChar::Space);
+      WriteNameOrIndex(import->func->name, func_index_++, NextChar::Space);
       if (import->func->decl.has_func_type) {
         WriteOpenSpace("type");
         WriteVar(&import->func->decl.type_var, NextChar::None);
@@ -1000,7 +1001,7 @@ void WatWriter::WriteExport(const Export* export_) {
   if (options_->inline_export)
     return;
   WriteOpenSpace("export");
-  WriteQuotedStringSlice(&export_->name, NextChar::Space);
+  WriteQuotedStringView(export_->name, NextChar::Space);
   WriteOpenSpace(get_kind_name(export_->kind));
   WriteVar(&export_->var, NextChar::Space);
   WriteCloseSpace();
@@ -1009,7 +1010,7 @@ void WatWriter::WriteExport(const Export* export_) {
 
 void WatWriter::WriteFuncType(const FuncType* func_type) {
   WriteOpenSpace("type");
-  WriteNameOrIndex(&func_type->name, func_type_index_++, NextChar::Space);
+  WriteNameOrIndex(func_type->name, func_type_index_++, NextChar::Space);
   WriteOpenSpace("func");
   WriteFuncSigSpace(&func_type->sig);
   WriteCloseSpace();
@@ -1117,7 +1118,7 @@ void WatWriter::BuildExportMaps() {
 void WatWriter::WriteInlineExport(const Export* export_) {
   if (export_ && options_->inline_export) {
     WriteOpenSpace("export");
-    WriteQuotedStringSlice(&export_->name, NextChar::None);
+    WriteQuotedStringView(export_->name, NextChar::None);
     WriteCloseSpace();
   }
 }

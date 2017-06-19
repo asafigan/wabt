@@ -24,6 +24,10 @@
 
 #include "hash-util.h"
 
+#define PRIstringview "%.*s"
+#define WABT_PRINTF_STRING_VIEW_ARG(x) int((x).size()), (x).data()
+
+
 namespace wabt {
 
 // This is a simplified implemention of C++17's basic_string_view template.

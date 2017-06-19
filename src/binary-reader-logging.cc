@@ -106,10 +106,11 @@ Result BinaryReaderLogging::BeginSection(BinarySection section_type,
   return reader->BeginSection(section_type, size);
 }
 
-Result BinaryReaderLogging::BeginCustomSection(Offset size,
-                                               StringSlice section_name) {
-  LOGF("BeginCustomSection('" PRIstringslice "', size: %" PRIzd ")\n",
-       WABT_PRINTF_STRING_SLICE_ARG(section_name), size);
+Result BinaryReaderLogging::BeginCustomSection(
+    Offset size,
+    const string_view& section_name) {
+  LOGF("BeginCustomSection('" PRIstringview "', size: %" PRIzd ")\n",
+       WABT_PRINTF_STRING_VIEW_ARG(section_name), size);
   Indent();
   return reader->BeginCustomSection(size, section_name);
 }
@@ -129,18 +130,18 @@ Result BinaryReaderLogging::OnType(Index index,
 }
 
 Result BinaryReaderLogging::OnImport(Index index,
-                                     StringSlice module_name,
-                                     StringSlice field_name) {
-  LOGF("OnImport(index: %" PRIindex ", module: \"" PRIstringslice
-       "\", field: \"" PRIstringslice "\")\n",
-       index, WABT_PRINTF_STRING_SLICE_ARG(module_name),
-       WABT_PRINTF_STRING_SLICE_ARG(field_name));
+                                     const string_view& module_name,
+                                     const string_view& field_name) {
+  LOGF("OnImport(index: %" PRIindex ", module: \"" PRIstringview
+       "\", field: \"" PRIstringview "\")\n",
+       index, WABT_PRINTF_STRING_VIEW_ARG(module_name),
+       WABT_PRINTF_STRING_VIEW_ARG(field_name));
   return reader->OnImport(index, module_name, field_name);
 }
 
 Result BinaryReaderLogging::OnImportFunc(Index import_index,
-                                         StringSlice module_name,
-                                         StringSlice field_name,
+                                         const string_view& module_name,
+                                         const string_view& field_name,
                                          Index func_index,
                                          Index sig_index) {
   LOGF("OnImportFunc(import_index: %" PRIindex ", func_index: %" PRIindex
@@ -151,8 +152,8 @@ Result BinaryReaderLogging::OnImportFunc(Index import_index,
 }
 
 Result BinaryReaderLogging::OnImportTable(Index import_index,
-                                          StringSlice module_name,
-                                          StringSlice field_name,
+                                          const string_view& module_name,
+                                          const string_view& field_name,
                                           Index table_index,
                                           Type elem_type,
                                           const Limits* elem_limits) {
@@ -166,8 +167,8 @@ Result BinaryReaderLogging::OnImportTable(Index import_index,
 }
 
 Result BinaryReaderLogging::OnImportMemory(Index import_index,
-                                           StringSlice module_name,
-                                           StringSlice field_name,
+                                           const string_view& module_name,
+                                           const string_view& field_name,
                                            Index memory_index,
                                            const Limits* page_limits) {
   char buf[100];
@@ -180,8 +181,8 @@ Result BinaryReaderLogging::OnImportMemory(Index import_index,
 }
 
 Result BinaryReaderLogging::OnImportGlobal(Index import_index,
-                                           StringSlice module_name,
-                                           StringSlice field_name,
+                                           const string_view& module_name,
+                                           const string_view& field_name,
                                            Index global_index,
                                            Type type,
                                            bool mutable_) {
@@ -223,11 +224,11 @@ Result BinaryReaderLogging::BeginGlobal(Index index,
 Result BinaryReaderLogging::OnExport(Index index,
                                      ExternalKind kind,
                                      Index item_index,
-                                     StringSlice name) {
+                                     const string_view& name) {
   LOGF("OnExport(index: %" PRIindex ", kind: %s, item_index: %" PRIindex
-       ", name: \"" PRIstringslice "\")\n",
+       ", name: \"" PRIstringview "\")\n",
        index, get_kind_name(kind), item_index,
-       WABT_PRINTF_STRING_SLICE_ARG(name));
+       WABT_PRINTF_STRING_VIEW_ARG(name));
   return reader->OnExport(index, kind, item_index, name);
 }
 
@@ -343,9 +344,10 @@ Result BinaryReaderLogging::OnFunctionNameSubsection(Index index,
   return reader->OnFunctionNameSubsection(index, name_type, subsection_size);
 }
 
-Result BinaryReaderLogging::OnFunctionName(Index index, StringSlice name) {
-  LOGF("OnFunctionName(index: %" PRIindex ", name: \"" PRIstringslice "\")\n",
-       index, WABT_PRINTF_STRING_SLICE_ARG(name));
+Result BinaryReaderLogging::OnFunctionName(Index index,
+                                           const string_view& name) {
+  LOGF("OnFunctionName(index: %" PRIindex ", name: \"" PRIstringview "\")\n",
+       index, WABT_PRINTF_STRING_VIEW_ARG(name));
   return reader->OnFunctionName(index, name);
 }
 
@@ -360,10 +362,10 @@ Result BinaryReaderLogging::OnLocalNameSubsection(Index index,
 
 Result BinaryReaderLogging::OnLocalName(Index func_index,
                                         Index local_index,
-                                        StringSlice name) {
+                                        const string_view& name) {
   LOGF("OnLocalName(func_index: %" PRIindex ", local_index: %" PRIindex
-       ", name: \"" PRIstringslice "\")\n",
-       func_index, local_index, WABT_PRINTF_STRING_SLICE_ARG(name));
+       ", name: \"" PRIstringview "\")\n",
+       func_index, local_index, WABT_PRINTF_STRING_VIEW_ARG(name));
   return reader->OnLocalName(func_index, local_index, name);
 }
 
@@ -402,11 +404,11 @@ Result BinaryReaderLogging::OnInitExprI64ConstExpr(Index index,
 
 Result BinaryReaderLogging::OnRelocCount(Index count,
                                          BinarySection section_code,
-                                         StringSlice section_name) {
+                                         const string_view& section_name) {
   LOGF("OnRelocCount(count: %" PRIindex
-       ", section: %s, section_name: " PRIstringslice ")\n",
+       ", section: %s, section_name: " PRIstringview ")\n",
        count, get_section_name(section_code),
-       WABT_PRINTF_STRING_SLICE_ARG(section_name));
+       WABT_PRINTF_STRING_VIEW_ARG(section_name));
   return reader->OnRelocCount(count, section_code, section_name);
 }
 

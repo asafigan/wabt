@@ -21,6 +21,7 @@
 
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "binding-hash.h"
@@ -159,10 +160,10 @@ struct Import {
   Import();
   Import(Import&&);
   Import& operator=(Import&&);
-  ~Import();
+  ~Import() = default;
 
-  StringSlice module_name;
-  StringSlice field_name;
+  std::string module_name;
+  std::string field_name;
   ExternalKind kind;
   union {
     struct {
@@ -215,15 +216,15 @@ struct DefinedFunc : Func {
 };
 
 struct HostFunc : Func {
-  HostFunc(const StringSlice& module_name,
-           const StringSlice& field_name,
+  HostFunc(const string_view& module_name,
+           const string_view& field_name,
            Index sig_index)
       : Func(sig_index, true),
         module_name(module_name),
         field_name(field_name) {}
 
-  StringSlice module_name;
-  StringSlice field_name;
+  std::string module_name;
+  std::string field_name;
   HostFuncCallback callback;
   void* user_data;
 };
@@ -239,13 +240,10 @@ HostFunc* Func::as_host() {
 }
 
 struct Export {
-  Export(const StringSlice& name, ExternalKind kind, Index index)
+  Export(const string_view& name, ExternalKind kind, Index index)
       : name(name), kind(kind), index(index) {}
-  Export(Export&&);
-  Export& operator=(Export&&);
-  ~Export();
 
-  StringSlice name;
+  std::string name;
   ExternalKind kind;
   Index index;
 };
@@ -267,15 +265,15 @@ class HostImportDelegate {
 struct Module {
   WABT_DISALLOW_COPY_AND_ASSIGN(Module);
   explicit Module(bool is_host);
-  Module(const StringSlice& name, bool is_host);
-  virtual ~Module();
+  Module(const string_view& name, bool is_host);
+  virtual ~Module() = default;
 
   inline struct DefinedModule* as_defined();
   inline struct HostModule* as_host();
 
-  Export* GetExport(StringSlice name);
+  Export* GetExport(const string_view& name);
 
-  StringSlice name;
+  std::string name;
   std::vector<Export> exports;
   BindingHash export_bindings;
   Index memory_index; /* kInvalidIndex if not defined */
@@ -293,7 +291,7 @@ struct DefinedModule : Module {
 };
 
 struct HostModule : Module {
-  explicit HostModule(const StringSlice& name);
+  explicit HostModule(const string_view& name);
 
   std::unique_ptr<HostImportDelegate> import_delegate;
 };
@@ -339,7 +337,7 @@ class Environment {
   Index GetLastModuleIndex() const {
     return modules_.empty() ? kInvalidIndex : modules_.size() - 1;
   }
-  Index FindModuleIndex(StringSlice name) const;
+  Index FindModuleIndex(const string_view& name) const;
 
   FuncSignature* GetFuncSignature(Index index) { return &sigs_[index]; }
   Func* GetFunc(Index index) {
@@ -366,8 +364,8 @@ class Environment {
   Module* GetLastModule() {
     return modules_.empty() ? nullptr : modules_.back().get();
   }
-  Module* FindModule(StringSlice name);
-  Module* FindRegisteredModule(StringSlice name);
+  Module* FindModule(const string_view& name);
+  Module* FindRegisteredModule(const string_view& name);
 
   template <typename... Args>
   FuncSignature* EmplaceBackFuncSignature(Args&&... args) {
@@ -415,7 +413,7 @@ class Environment {
     registered_module_bindings_.emplace(args...);
   }
 
-  HostModule* AppendHostModule(StringSlice name);
+  HostModule* AppendHostModule(const string_view& name);
 
   bool FuncSignaturesAreEqual(Index sig_index_0, Index sig_index_1) const;
 

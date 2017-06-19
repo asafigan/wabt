@@ -22,12 +22,13 @@
 #include <memory>
 
 #include "common.h"
-#include "interpreter.h"
 #include "lexer-source-line-finder.h"
+#include "literal.h"
+#include "opcode.h"
 
 namespace wabt {
 
-union Token;
+struct Token;
 struct WastParser;
 class LexerSource;
 

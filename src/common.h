@@ -46,9 +46,6 @@
 #define WABT_ALIGN_UP_TO_PAGE(x) \
   (((x) + WABT_PAGE_SIZE - 1) & ~(WABT_PAGE_SIZE - 1))
 
-#define PRIstringslice "%.*s"
-#define WABT_PRINTF_STRING_SLICE_ARG(x) static_cast<int>((x).length), (x).start
-
 #define WABT_DEFAULT_SNPRINTF_ALLOCA_BUFSIZE 128
 #define WABT_SNPRINTF_ALLOCA(buffer, len, format)                          \
   va_list args;                                                            \
@@ -133,11 +130,6 @@ enum class LabelType {
   Last = Catch,
 };
 static const int kLabelTypeCount = WABT_ENUM_COUNT(LabelType);
-
-struct StringSlice {
-  const char* start;
-  size_t length;
-};
 
 struct Location {
   // TODO(binji): The type is not stored directly on the location because we
@@ -228,19 +220,6 @@ struct Limits {
 
 enum { WABT_USE_NATURAL_ALIGNMENT = 0xFFFFFFFF };
 
-enum class LiteralType {
-  Int,
-  Float,
-  Hexfloat,
-  Infinity,
-  Nan,
-};
-
-struct Literal {
-  LiteralType type;
-  StringSlice text;
-};
-
 enum class NameSectionSubsection {
   Function = 1,
   Local = 2,
@@ -260,34 +239,7 @@ static WABT_INLINE char* wabt_strndup(const char* s, size_t len) {
   return new_s;
 }
 
-static WABT_INLINE StringSlice dup_string_slice(StringSlice str) {
-  StringSlice result;
-  char* new_data = new char[str.length];
-  memcpy(new_data, str.start, str.length);
-  result.start = new_data;
-  result.length = str.length;
-  return result;
-}
-
-StringSlice empty_string_slice(void);
-bool string_slice_eq_cstr(const StringSlice* s1, const char* s2);
-bool string_slice_startswith(const StringSlice* s1, const char* s2);
-StringSlice string_slice_from_cstr(const char* string);
-bool string_slice_is_empty(const StringSlice*);
-bool string_slices_are_equal(const StringSlice*, const StringSlice*);
-void destroy_string_slice(StringSlice*);
 Result read_file(const char* filename, char** out_data, size_t* out_size);
-
-inline std::string string_slice_to_string(const StringSlice& ss) {
-  return std::string(ss.start, ss.length);
-}
-
-inline StringSlice string_to_string_slice(const std::string& s) {
-  StringSlice ss;
-  ss.start = s.data();
-  ss.length = s.length();
-  return ss;
-}
 
 void init_stdio();
 

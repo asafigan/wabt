@@ -27,8 +27,6 @@ namespace wabt {
 
 namespace {
 
-typedef Label* LabelPtr;
-
 class NameResolver : public ExprVisitor::DelegateNop {
  public:
   NameResolver(WastLexer* lexer,
@@ -63,7 +61,7 @@ class NameResolver : public ExprVisitor::DelegateNop {
 
  private:
   void PrintError(const Location* loc, const char* fmt, ...);
-  void PushLabel(Label* label);
+  void PushLabel(const std::string& label);
   void PopLabel();
   void CheckDuplicateBindings(const BindingHash* bindings, const char* desc);
   void ResolveLabelVar(Var* var);
@@ -89,7 +87,7 @@ class NameResolver : public ExprVisitor::DelegateNop {
   Module* current_module_ = nullptr;
   Func* current_func_ = nullptr;
   ExprVisitor visitor_;
-  std::vector<Label*> labels_;
+  std::vector<std::string> labels_;
   Result result_ = Result::Ok;
 };
 
@@ -113,7 +111,7 @@ void WABT_PRINTF_FORMAT(3, 4) NameResolver::PrintError(const Location* loc,
   va_end(args);
 }
 
-void NameResolver::PushLabel(Label* label) {
+void NameResolver::PushLabel(const std::string& label) {
   labels_.push_back(label);
 }
 
@@ -137,16 +135,13 @@ void NameResolver::CheckDuplicateBindings(const BindingHash* bindings,
 void NameResolver::ResolveLabelVar(Var* var) {
   if (var->type == VarType::Name) {
     for (int i = labels_.size() - 1; i >= 0; --i) {
-      Label* label = labels_[i];
-      if (string_slices_are_equal(label, &var->name)) {
-        destroy_string_slice(&var->name);
-        var->type = VarType::Index;
-        var->index = labels_.size() - i - 1;
+      const std::string& label = labels_[i];
+      if (label == var->name) {
+        *var = Var(labels_.size() - i - 1);
         return;
       }
     }
-    PrintError(&var->loc, "undefined label variable \"" PRIstringslice "\"",
-               WABT_PRINTF_STRING_SLICE_ARG(var->name));
+    PrintError(&var->loc, "undefined label variable \"%s\"", var->name.c_str());
   }
 }
 
@@ -156,14 +151,12 @@ void NameResolver::ResolveVar(const BindingHash* bindings,
   if (var->type == VarType::Name) {
     Index index = bindings->FindIndex(*var);
     if (index == kInvalidIndex) {
-      PrintError(&var->loc, "undefined %s variable \"" PRIstringslice "\"",
-                 desc, WABT_PRINTF_STRING_SLICE_ARG(var->name));
+      PrintError(&var->loc, "undefined %s variable \"" PRIstringview "\"",
+                 desc, WABT_PRINTF_STRING_VIEW_ARG(var->name));
       return;
     }
 
-    destroy_string_slice(&var->name);
-    var->index = index;
-    var->type = VarType::Index;
+    *var = Var(index);
   }
 }
 
@@ -198,19 +191,17 @@ void NameResolver::ResolveLocalVar(Var* var) {
 
     Index index = current_func_->GetLocalIndex(*var);
     if (index == kInvalidIndex) {
-      PrintError(&var->loc, "undefined local variable \"" PRIstringslice "\"",
-                 WABT_PRINTF_STRING_SLICE_ARG(var->name));
+      PrintError(&var->loc, "undefined local variable \"" PRIstringview "\"",
+                 WABT_PRINTF_STRING_VIEW_ARG(var->name));
       return;
     }
 
-    destroy_string_slice(&var->name);
-    var->index = index;
-    var->type = VarType::Index;
+    *var = Var(index);
   }
 }
 
 Result NameResolver::BeginBlockExpr(Expr* expr) {
-  PushLabel(&expr->block->label);
+  PushLabel(expr->block->label);
   return Result::Ok;
 }
 
@@ -220,7 +211,7 @@ Result NameResolver::EndBlockExpr(Expr* expr) {
 }
 
 Result NameResolver::BeginLoopExpr(Expr* expr) {
-  PushLabel(&expr->loop->label);
+  PushLabel(expr->loop->label);
   return Result::Ok;
 }
 
@@ -267,7 +258,7 @@ Result NameResolver::OnGetLocalExpr(Expr* expr) {
 }
 
 Result NameResolver::BeginIfExpr(Expr* expr) {
-  PushLabel(&expr->if_.true_->label);
+  PushLabel(expr->if_.true_->label);
   return Result::Ok;
 }
 

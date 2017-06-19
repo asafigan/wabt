@@ -164,7 +164,7 @@ class BinaryReader {
   Result ReadI32Leb128(uint32_t* out_value, const char* desc) WABT_WARN_UNUSED;
   Result ReadI64Leb128(uint64_t* out_value, const char* desc) WABT_WARN_UNUSED;
   Result ReadType(Type* out_value, const char* desc) WABT_WARN_UNUSED;
-  Result ReadStr(StringSlice* out_str, const char* desc) WABT_WARN_UNUSED;
+  Result ReadStr(string_view* out_str, const char* desc) WABT_WARN_UNUSED;
   Result ReadBytes(const void** out_data,
                    Address* out_data_size,
                    const char* desc) WABT_WARN_UNUSED;
@@ -384,18 +384,18 @@ Result BinaryReader::ReadType(Type* out_value, const char* desc) {
   return Result::Ok;
 }
 
-Result BinaryReader::ReadStr(StringSlice* out_str, const char* desc) {
+Result BinaryReader::ReadStr(string_view* out_str, const char* desc) {
   uint32_t str_len = 0;
   CHECK_RESULT(ReadU32Leb128(&str_len, "string length"));
 
   ERROR_UNLESS(state_.offset + str_len <= read_end_,
                "unable to read string: %s", desc);
 
-  out_str->start = reinterpret_cast<const char*>(state_.data) + state_.offset;
-  out_str->length = str_len;
+  *out_str = string_view(
+      reinterpret_cast<const char*>(state_.data) + state_.offset, str_len);
   state_.offset += str_len;
 
-  ERROR_UNLESS(is_valid_utf8(out_str->start, out_str->length),
+  ERROR_UNLESS(is_valid_utf8(out_str->begin(), out_str->size()),
                "invalid utf-8 encoding: %s", desc);
   return Result::Ok;
 }
@@ -1035,7 +1035,7 @@ Result BinaryReader::ReadNamesSection(Offset section_size) {
 
           for (Index j = 0; j < num_names; ++j) {
             Index function_index;
-            StringSlice function_name;
+            string_view function_name;
 
             CHECK_RESULT(ReadIndex(&function_index, "function index"));
             ERROR_UNLESS(function_index != last_function_index,
@@ -1074,7 +1074,7 @@ Result BinaryReader::ReadNamesSection(Offset section_size) {
             Index last_local_index = kInvalidIndex;
             for (Index k = 0; k < num_locals; ++k) {
               Index local_index;
-              StringSlice local_name;
+              string_view local_name;
 
               CHECK_RESULT(ReadIndex(&local_index, "named index"));
               ERROR_UNLESS(local_index != last_local_index,
@@ -1108,8 +1108,7 @@ Result BinaryReader::ReadRelocSection(Offset section_size) {
   CALLBACK(BeginRelocSection, section_size);
   uint32_t section;
   CHECK_RESULT(ReadU32Leb128(&section, "section"));
-  StringSlice section_name;
-  WABT_ZERO_MEMORY(section_name);
+  string_view section_name;
   if (static_cast<BinarySection>(section) == BinarySection::Custom)
     CHECK_RESULT(ReadStr(&section_name, "section name"));
   Index num_relocs;
@@ -1187,17 +1186,15 @@ Result BinaryReader::ReadLinkingSection(Offset section_size) {
 }
 
 Result BinaryReader::ReadCustomSection(Offset section_size) {
-  StringSlice section_name;
+  string_view section_name;
   CHECK_RESULT(ReadStr(&section_name, "section name"));
   CALLBACK(BeginCustomSection, section_size, section_name);
 
   bool name_section_ok = last_known_section_ >= BinarySection::Import;
   if (options_->read_debug_names && name_section_ok &&
-      strncmp(section_name.start, WABT_BINARY_SECTION_NAME,
-              section_name.length) == 0) {
+      section_name == WABT_BINARY_SECTION_NAME) {
     CHECK_RESULT(ReadNamesSection(section_size));
-  } else if (strncmp(section_name.start, WABT_BINARY_SECTION_RELOC,
-                     strlen(WABT_BINARY_SECTION_RELOC)) == 0) {
+  } else if (section_name == WABT_BINARY_SECTION_RELOC) {
     CHECK_RESULT(ReadRelocSection(section_size));
   } else if (strncmp(section_name.start, WABT_BINARY_SECTION_LINKING,
                      strlen(WABT_BINARY_SECTION_LINKING)) == 0) {
@@ -1260,9 +1257,9 @@ Result BinaryReader::ReadImportSection(Offset section_size) {
   CHECK_RESULT(ReadIndex(&num_imports_, "import count"));
   CALLBACK(OnImportCount, num_imports_);
   for (Index i = 0; i < num_imports_; ++i) {
-    StringSlice module_name;
+    string_view module_name;
     CHECK_RESULT(ReadStr(&module_name, "import module name"));
-    StringSlice field_name;
+    string_view field_name;
     CHECK_RESULT(ReadStr(&field_name, "import field name"));
 
     uint32_t kind;
@@ -1394,7 +1391,7 @@ Result BinaryReader::ReadExportSection(Offset section_size) {
   CHECK_RESULT(ReadIndex(&num_exports_, "export count"));
   CALLBACK(OnExportCount, num_exports_);
   for (Index i = 0; i < num_exports_; ++i) {
-    StringSlice name;
+    string_view name;
     CHECK_RESULT(ReadStr(&name, "export item name"));
 
     uint8_t external_kind = 0;

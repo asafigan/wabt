@@ -23,6 +23,7 @@
 #include "common.h"
 #include "ir.h"
 #include "source-error-handler.h"
+#include "string-view.h"
 #include "wast-parser.h"
 
 #define WABT_WAST_PARSER_STYPE Token
@@ -39,7 +40,7 @@ struct ExprList {
 };
 
 struct TextListNode {
-  StringSlice text;
+  std::string text;
   struct TextListNode* next;
 };
 
@@ -53,48 +54,52 @@ struct ModuleFieldList {
   ModuleField* last;
 };
 
-union Token {
-  /* terminals */
-  StringSlice text;
-  Type type;
-  Opcode opcode;
-  Literal literal;
+struct Token {
+  Token() {}
 
-  /* non-terminals */
-  /* some of these use pointers to keep the size of Token down; copying the
-   tokens is a hotspot when parsing large files. */
-  Action* action;
-  Block* block;
-  Catch* catch_;
-  Command* command;
-  CommandPtrVector* commands;
-  Const const_;
-  ConstVector* consts;
-  DataSegment* data_segment;
-  ElemSegment* elem_segment;
-  Exception* exception;
-  Export* export_;
-  Expr* expr;
-  ExprList expr_list;
-  Func* func;
-  FuncSignature* func_sig;
-  FuncType* func_type;
-  Global* global;
-  Import* import;
-  Limits limits;
-  Memory* memory;
-  Module* module;
-  ModuleField* module_field;
-  ModuleFieldList module_fields;
-  ScriptModule* script_module;
-  Script* script;
-  Table* table;
-  TextList text_list;
-  TypeVector* types;
-  uint32_t u32;
-  uint64_t u64;
-  Var* var;
-  VarVector* vars;
+  union {
+    /* terminals */
+    string_view text_view;
+    Type type;
+    Opcode opcode;
+    LiteralView literal_view;
+
+    /* non-terminals */
+    /* some of these use pointers to keep the size of Token down; copying the
+     tokens is a hotspot when parsing large files. */
+    Action* action;
+    Block* block;
+    Catch* catch_;
+    Command* command;
+    CommandPtrVector* commands;
+    Const const_;
+    ConstVector* consts;
+    DataSegment* data_segment;
+    ElemSegment* elem_segment;
+    Exception* exception;
+    Export* export_;
+    Expr* expr;
+    ExprList expr_list;
+    Func* func;
+    FuncSignature* func_sig;
+    FuncType* func_type;
+    Global* global;
+    Import* import;
+    Limits limits;
+    Memory* memory;
+    Module* module;
+    ModuleField* module_field;
+    ModuleFieldList module_fields;
+    ScriptModule* script_module;
+    Script* script;
+    Table* table;
+    TextList text_list;
+    TypeVector* types;
+    uint32_t u32;
+    uint64_t u64;
+    Var* var;
+    VarVector* vars;
+  };
 };
 
 struct WastParser {
@@ -108,10 +113,7 @@ struct WastParser {
   WastParseOptions* options;
 };
 
-int wast_lexer_lex(union Token*,
-                   struct Location*,
-                   WastLexer*,
-                   struct WastParser*);
+int wast_lexer_lex(Token*, struct Location*, WastLexer*, struct WastParser*);
 void WABT_PRINTF_FORMAT(4, 5) wast_parser_error(struct Location*,
                                                 WastLexer*,
                                                 struct WastParser*,

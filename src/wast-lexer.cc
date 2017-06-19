@@ -163,9 +163,8 @@ void WastLexer::PushLookaheadToken() {
 }
 
 void WastLexer::SetLiteral(LiteralType lit_typ) {
-  token_->lval_.literal.type = lit_typ;
-  token_->lval_.literal.text.start = yytext;
-  token_->lval_.literal.text.length = yyleng;
+  token_->lval_.literal_view.type = lit_typ;
+  token_->lval_.literal_view.text = string_view(yytext, yyleng);
 }
 
 void WastLexer::SetLocation(Location* loc) {
@@ -185,13 +184,11 @@ void WastLexer::SetOpcode(Opcode opc) {
 }
 
 void WastLexer::SetText() {
-  token_->lval_.text.start = yytext;
-  token_->lval_.text.length = yyleng;
+  token_->lval_.text_view = string_view(yytext, yyleng);
 }
 
 void WastLexer::SetTextAt(size_t offset) {
-  token_->lval_.text.start = yytext + offset;
-  token_->lval_.text.length = yyleng - offset;
+  token_->lval_.text_view = string_view(yytext + offset, yyleng - offset);
 }
 
 void WastLexer::SetToken(int value) {

@@ -18,8 +18,10 @@
 #define WABT_LITERAL_H_
 
 #include <cstdint>
+#include <string>
 
 #include "common.h"
+#include "string-view.h"
 
 namespace wabt {
 
@@ -33,6 +35,30 @@ namespace wabt {
 enum class ParseIntType {
   UnsignedOnly = 0,
   SignedAndUnsigned = 1,
+};
+
+enum class LiteralType {
+  Int,
+  Float,
+  Hexfloat,
+  Infinity,
+  Nan,
+};
+
+struct LiteralView;
+
+struct LiteralView {
+  LiteralType type;
+  string_view text;
+};
+
+struct Literal {
+  Literal() = default;
+  Literal(LiteralType type, const string_view& view) : type(type), text(view) {}
+  Literal(const LiteralView& view) : type(view.type), text(view.text) {}
+
+  LiteralType type;
+  std::string text;
 };
 
 /* Size of char buffer required to hold hex representation of a float/double */

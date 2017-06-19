@@ -71,7 +71,6 @@ void destroy_text_list(TextList* text_list) {
   TextListNode* node = text_list->first;
   while (node) {
     TextListNode* next = node->next;
-    destroy_string_slice(&node->text);
     delete node;
     node = next;
   }
