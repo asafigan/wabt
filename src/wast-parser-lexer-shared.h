@@ -85,6 +85,7 @@ struct Token {
     FuncType* func_type;
     Global* global;
     Import* import;
+    Literal* literal;
     Limits limits;
     Memory* memory;
     Module* module;
@@ -92,6 +93,7 @@ struct Token {
     ModuleFieldList module_fields;
     ScriptModule* script_module;
     Script* script;
+    std::string* text;
     Table* table;
     TextList text_list;
     TypeVector* types;

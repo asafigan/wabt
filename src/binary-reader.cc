@@ -1163,7 +1163,7 @@ Result BinaryReader::ReadLinkingSection(Offset section_size) {
         CHECK_RESULT(ReadU32Leb128(&info_count, "info count"));
         CALLBACK(OnSymbolInfoCount, info_count);
         while (info_count--) {
-          StringSlice name;
+          string_view name;
           uint32_t info;
           CHECK_RESULT(ReadStr(&name, "symbol name"));
           CHECK_RESULT(ReadU32Leb128(&info, "sym flags"));
@@ -1196,8 +1196,7 @@ Result BinaryReader::ReadCustomSection(Offset section_size) {
     CHECK_RESULT(ReadNamesSection(section_size));
   } else if (section_name == WABT_BINARY_SECTION_RELOC) {
     CHECK_RESULT(ReadRelocSection(section_size));
-  } else if (strncmp(section_name.start, WABT_BINARY_SECTION_LINKING,
-                     strlen(WABT_BINARY_SECTION_LINKING)) == 0) {
+  } else if (section_name == WABT_BINARY_SECTION_LINKING) {
     CHECK_RESULT(ReadLinkingSection(section_size));
   } else {
     /* This is an unknown custom section, skip it. */

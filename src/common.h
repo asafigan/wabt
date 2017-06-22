@@ -295,10 +295,6 @@ inline void ConvertBackslashToSlash(char* s, size_t length) {
   ConvertBackslashToSlash(s, s + length);
 }
 
-inline void ConvertBackslashToSlash(char* s) {
-  ConvertBackslashToSlash(s, strlen(s));
-}
-
 inline void ConvertBackslashToSlash(std::string* s) {
   ConvertBackslashToSlash(s->begin(), s->end());
 }

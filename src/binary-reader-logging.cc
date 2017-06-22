@@ -423,10 +423,10 @@ Result BinaryReaderLogging::OnReloc(RelocType type,
   return reader->OnReloc(type, offset, index, addend);
 }
 
-Result BinaryReaderLogging::OnSymbolInfo(StringSlice name,
+Result BinaryReaderLogging::OnSymbolInfo(const string_view& name,
                                          uint32_t flags) {
-  LOGF("(OnSymbolInfo name: " PRIstringslice ", flags: 0x%x)\n",
-       WABT_PRINTF_STRING_SLICE_ARG(name), flags);
+  LOGF("(OnSymbolInfo name: " PRIstringview ", flags: 0x%x)\n",
+       WABT_PRINTF_STRING_VIEW_ARG(name), flags);
   return reader->OnSymbolInfo(name, flags);
 }
 

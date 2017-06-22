@@ -209,7 +209,6 @@ struct Expr {
 struct Exception {
   std::string name;
   TypeVector sig;
-  ~Exception() { destroy_string_slice(&name); }
 };
 
 struct FuncSignature {

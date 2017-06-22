@@ -494,7 +494,7 @@ class BinaryReaderObjdump : public BinaryReaderObjdumpBase {
 
   Result OnStackGlobal(Index stack_global) override;
   Result OnSymbolInfoCount(Index count) override;
-  Result OnSymbolInfo(StringSlice name, uint32_t flags) override;
+  Result OnSymbolInfo(const string_view& name, uint32_t flags) override;
 
  private:
   bool ShouldPrintDetails();
@@ -897,10 +897,10 @@ Result BinaryReaderObjdump::OnSymbolInfoCount(Index count) {
   return Result::Ok;
 }
 
-Result BinaryReaderObjdump::OnSymbolInfo(StringSlice name,
+Result BinaryReaderObjdump::OnSymbolInfo(const string_view& name,
                                          uint32_t flags) {
-  PrintDetails("   - <" PRIstringslice "> flags=0x%x\n",
-               WABT_PRINTF_STRING_SLICE_ARG(name), flags);
+  PrintDetails("   - <" PRIstringview "> flags=0x%x\n",
+               WABT_PRINTF_STRING_VIEW_ARG(name), flags);
   return Result::Ok;
 }
 

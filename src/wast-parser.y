@@ -221,8 +221,6 @@ class BinaryErrorHandlerModule : public BinaryErrorHandler {
 %type<vars> var_list
 %type<var> type_use var script_var_opt
 
-/* These non-terminals use the types below that have destructors, but the
- * memory is shared with the lexer, so should not be destroyed. */
 %destructor { delete $$; } <text>
 %destructor { delete $$; } <literal>
 %destructor { delete $$; } <action>
@@ -579,7 +577,7 @@ block_instr :
       CHECK_END_LABEL(@8, $$->if_.true_->label, $8);
     }
   | try_check labeling_opt block catch_instr_list END labeling_opt {
-      $3->label = $2;
+      $3->label = move_and_delete($2);
       $$ = $4;
       $$->try_block.block = $3;
       CHECK_END_LABEL(@6, $3->label, $6);

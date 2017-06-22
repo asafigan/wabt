@@ -212,7 +212,7 @@ Var::Var(Index index, const Location& loc_) : Var(index) {
   loc = loc;
 }
 
-Var::Var(const StringSlice& name, const Location& loc_) : Var(name) {
+Var::Var(const string_view& name, const Location& loc_) : Var(name) {
   loc = loc;
 }
 

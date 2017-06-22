@@ -283,7 +283,7 @@ Result NameResolver::OnTeeLocalExpr(Expr* expr) {
 }
 
 Result NameResolver::BeginTryExpr(Expr* expr) {
-  PushLabel(&expr->try_block.block->label);
+  PushLabel(expr->try_block.block->label);
   return Result::Ok;
 }
 

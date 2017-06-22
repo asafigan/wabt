@@ -59,14 +59,12 @@ struct Export {
   Index index;
 };
 
-struct SectionDataCustom {
-  /* Reference to string data stored in the containing InputBinary */
-  string_view name;
-};
-
 struct Section {
   WABT_DISALLOW_COPY_AND_ASSIGN(Section);
+// TODO(binji)
+#if 0
   Section();
+#endif
   ~Section();
 
   /* The binary to which this section belongs */
@@ -84,8 +82,6 @@ struct Section {
   Index count;
 
   union {
-    /* CUSTOM section data */
-    SectionDataCustom custom;
     /* DATA section data */
     std::vector<DataSegment>* data_segments;
     /* MEMORY section data */
