@@ -189,10 +189,10 @@ void BinaryWriterSpec::WriteLocation(const Location* loc) {
 }
 
 void BinaryWriterSpec::WriteVar(const Var* var) {
-  if (var->type == VarType::Index)
-    json_stream_.Writef("\"%" PRIindex "\"", var->index);
+  if (var->is_index())
+    json_stream_.Writef("\"%" PRIindex "\"", var->index());
   else
-    WriteEscapedStringSlice(var->name);
+    WriteEscapedStringSlice(var->name());
 }
 
 void BinaryWriterSpec::WriteTypeObject(Type type) {
@@ -270,7 +270,7 @@ void BinaryWriterSpec::WriteAction(const Action* action) {
     WriteString("get");
   }
   WriteSeparator();
-  if (action->module_var.type != VarType::Index) {
+  if (action->module_var.is_name()) {
     WriteKey("module");
     WriteVar(&action->module_var);
     WriteSeparator();
@@ -441,9 +441,9 @@ void BinaryWriterSpec::WriteCommands(Script* script) {
         break;
 
       case CommandType::Register:
-        WriteLocation(&command.register_.var.loc);
+        WriteLocation(&command.register_.var.loc());
         WriteSeparator();
-        if (command.register_.var.type == VarType::Name) {
+        if (command.register_.var.is_name()) {
           WriteKey("name");
           WriteVar(&command.register_.var);
           WriteSeparator();
@@ -451,7 +451,7 @@ void BinaryWriterSpec::WriteCommands(Script* script) {
           /* If we're not registering by name, then we should only be
            * registering the last module. */
           WABT_USE(last_module_index);
-          assert(command.register_.var.index == last_module_index);
+          assert(command.register_.var.index() == last_module_index);
         }
         WriteKey("as");
         WriteEscapedStringSlice(command.register_.module_name);

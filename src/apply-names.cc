@@ -93,28 +93,27 @@ void NameApplier::PopLabel() {
 }
 
 const std::string* NameApplier::FindLabelByVar(Var* var) {
-  if (var->type == VarType::Name) {
+  if (var->is_name()) {
     for (auto iter = labels_.rbegin(), end = labels_.rend(); iter != end;
          ++iter) {
-      if (*iter == var->name)
+      if (*iter == var->name())
         return &*iter;
     }
     return nullptr;
   } else {
-    if (var->index >= labels_.size())
+    if (var->index() >= labels_.size())
       return nullptr;
-    return &*(labels_.rbegin() + var->index);
+    return &*(labels_.rbegin() + var->index());
   }
 }
 
 void NameApplier::UseNameForVar(const std::string* name, Var* var) {
-  if (var->type == VarType::Name) {
-    assert(*name == var->name);
+  if (var->is_name()) {
+    assert(*name == var->name());
   }
 
-  if (name) {
-    var->type = VarType::Name;
-    var->name = *name;
+  if (name && !name->empty()) {
+    var->SetName(*name);
   }
 }
 
@@ -176,15 +175,14 @@ Result NameApplier::UseNameForParamAndLocalVar(Func* func, Var* var) {
     name = &local_index_to_name_[local_index];
   }
 
-  if (var->type == VarType::Name) {
-    assert(*name == var->name);
+  if (var->is_name()) {
+    assert(*name == var->name());
     return Result::Ok;
   }
 
   if (!name->empty()) {
-    var->type = VarType::Name;
-    var->name = *name;
-    return !var->name.empty() ? Result::Ok : Result::Error;
+    var->SetName(*name);
+    return !var->name().empty() ? Result::Ok : Result::Error;
   }
   return Result::Ok;
 }

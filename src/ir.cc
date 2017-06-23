@@ -57,14 +57,14 @@ Index Module::GetExceptIndex(const Var& var) const {
 }
 
 Index Func::GetLocalIndex(const Var& var) const {
-  if (var.type == VarType::Index)
-    return var.index;
+  if (var.is_index())
+    return var.index();
 
-  Index result = param_bindings.FindIndex(var.name);
+  Index result = param_bindings.FindIndex(var.name());
   if (result != kInvalidIndex)
     return result;
 
-  result = local_bindings.FindIndex(var.name);
+  result = local_bindings.FindIndex(var.name());
   if (result == kInvalidIndex)
     return result;
 
@@ -200,66 +200,90 @@ void DestroyExprList(Expr* first) {
   }
 }
 
-Var::Var(Index index) : type(VarType::Index), index(index) {
-  WABT_ZERO_MEMORY(loc);
+Var::Var(Index index) : type_(VarType::Index), index_(index) {
+  WABT_ZERO_MEMORY(loc_);
 }
 
-Var::Var(const string_view& name) : type(VarType::Name), name(name) {
-  WABT_ZERO_MEMORY(loc);
+Var::Var(const string_view& name) : type_(VarType::Name), name_(name) {
+  WABT_ZERO_MEMORY(loc_);
 }
 
-Var::Var(Index index, const Location& loc_) : Var(index) {
-  loc = loc;
+Var::Var(Index index, const Location& loc) : Var(index) {
+  loc_ = loc;
 }
 
-Var::Var(const string_view& name, const Location& loc_) : Var(name) {
-  loc = loc;
+Var::Var(const string_view& name, const Location& loc) : Var(name) {
+  loc_ = loc;
 }
 
-Var::Var(Var&& rhs) : loc(rhs.loc), type(rhs.type) {
-  if (rhs.type == VarType::Index) {
-    index = rhs.index;
+Var::Var(Var&& rhs) {
+  loc_ = rhs.loc_;
+  type_ = rhs.type_;
+  if (rhs.is_index()) {
+    index_ = rhs.index_;
   } else {
-    name = std::move(rhs.name);
-    rhs = Var(kInvalidIndex);
+    new (&name_) std::string(std::move(rhs.name_));
   }
 }
 
-Var::Var(const Var& rhs) : loc(rhs.loc), type(rhs.type) {
-  if (rhs.type == VarType::Index) {
-    index = rhs.index;
+Var::Var(const Var& rhs) {
+  loc_ = rhs.loc_;
+  type_ = rhs.type_;
+  if (rhs.type_ == VarType::Index) {
+    index_ = rhs.index_;
   } else {
-    name = rhs.name;
+    new (&name_) std::string(rhs.name_);
   }
 }
 
-Var& Var::operator =(Var&& rhs) {
-  loc = rhs.loc;
-  type = rhs.type;
-  if (rhs.type == VarType::Index) {
-    index = rhs.index;
+Var& Var::operator=(Var&& rhs) {
+  Destroy();
+  loc_ = rhs.loc_;
+  type_ = rhs.type_;
+  if (rhs.is_index()) {
+    index_ = rhs.index_;
   } else {
-    name = std::move(rhs.name);
-    rhs = Var(kInvalidIndex);
+    new (&name_) std::string(std::move(rhs.name_));
   }
   return *this;
 }
 
-Var& Var::operator =(const Var& rhs) {
-  loc = rhs.loc;
-  type = rhs.type;
-  if (rhs.type == VarType::Index) {
-    index = rhs.index;
+Var& Var::operator=(const Var& rhs) {
+  Destroy();
+  loc_ = rhs.loc_;
+  type_ = rhs.type_;
+  if (rhs.is_index()) {
+    index_ = rhs.index_;
   } else {
-    name = rhs.name;
+    new (&name_) std::string(rhs.name_);
   }
   return *this;
 }
 
 Var::~Var() {
+  Destroy();
+}
+
+void Var::Destroy() {
   typedef std::string string;
-  if (type == VarType::Name)
-    name.~string();
+  if (is_name())
+    name_.~string();
+}
+
+void Var::SetLoc(const Location& loc) {
+  loc_ = loc;
+}
+
+void Var::SetIndex(Index index) {
+  Destroy();
+  index_ = index_;
+  type_ = VarType::Index;
+}
+
+void Var::SetName(const string_view& name) {
+  Destroy();
+  new (&name_) std::string(name.to_string());
+  type_ = VarType::Name;
 }
 
 Const::Const(I32, uint32_t value) : type(Type::I32), u32(value) {

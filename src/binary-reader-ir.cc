@@ -556,12 +556,12 @@ Result BinaryReaderIR::OnBlockExpr(Index num_types, Type* sig_types) {
 }
 
 Result BinaryReaderIR::OnBrExpr(Index depth) {
-  Expr* expr = Expr::CreateBr(Var(depth));
+  Expr* expr = Expr::CreateBr(Var(depth, GetLocation()));
   return AppendExpr(expr);
 }
 
 Result BinaryReaderIR::OnBrIfExpr(Index depth) {
-  Expr* expr = Expr::CreateBrIf(Var(depth));
+  Expr* expr = Expr::CreateBrIf(Var(depth, GetLocation()));
   return AppendExpr(expr);
 }
 
@@ -571,21 +571,22 @@ Result BinaryReaderIR::OnBrTableExpr(Index num_targets,
   VarVector* targets = new VarVector();
   targets->resize(num_targets);
   for (Index i = 0; i < num_targets; ++i) {
-    (*targets)[i] = Var(target_depths[i]);
+    (*targets)[i] = Var(target_depths[i], GetLocation());
   }
-  Expr* expr = Expr::CreateBrTable(targets, Var(default_target_depth));
+  Expr* expr =
+      Expr::CreateBrTable(targets, Var(default_target_depth, GetLocation()));
   return AppendExpr(expr);
 }
 
 Result BinaryReaderIR::OnCallExpr(Index func_index) {
   assert(func_index < module->funcs.size());
-  Expr* expr = Expr::CreateCall(Var(func_index));
+  Expr* expr = Expr::CreateCall(Var(func_index, GetLocation()));
   return AppendExpr(expr);
 }
 
 Result BinaryReaderIR::OnCallIndirectExpr(Index sig_index) {
   assert(sig_index < module->func_types.size());
-  Expr* expr = Expr::CreateCallIndirect(Var(sig_index));
+  Expr* expr = Expr::CreateCallIndirect(Var(sig_index, GetLocation()));
   return AppendExpr(expr);
 }
 

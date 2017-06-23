@@ -192,13 +192,13 @@ Result Validator::CheckVar(Index max_index,
                            const Var* var,
                            const char* desc,
                            Index* out_index) {
-  assert(var->type == VarType::Index);
-  if (var->index < max_index) {
+  assert(var->is_index());
+  if (var->index() < max_index) {
     if (out_index)
-      *out_index = var->index;
+      *out_index = var->index();
     return Result::Ok;
   }
-  PrintError(&var->loc, "%s variable out of range (max %" PRIindex ")", desc,
+  PrintError(&var->loc(), "%s variable out of range (max %" PRIindex ")", desc,
              max_index);
   return Result::Error;
 }
@@ -291,10 +291,11 @@ Result Validator::CheckLocalVar(const Var* var, Type* out_type) {
     return Result::Ok;
   }
 
-  if (var->type == VarType::Name) {
-    PrintError(&var->loc, "undefined local variable \"%s\"", var->name.c_str());
+  if (var->is_name()) {
+    PrintError(&var->loc(), "undefined local variable \"%s\"",
+               var->name().c_str());
   } else {
-    PrintError(&var->loc, "local variable out of range (max %" PRIindex ")",
+    PrintError(&var->loc(), "local variable out of range (max %" PRIindex ")",
                max_index);
   }
   return Result::Error;
@@ -434,19 +435,19 @@ void Validator::CheckExpr(const Expr* expr) {
       break;
 
     case ExprType::Br:
-      typechecker_.OnBr(expr->br.var.index);
+      typechecker_.OnBr(expr->br.var.index());
       break;
 
     case ExprType::BrIf:
-      typechecker_.OnBrIf(expr->br_if.var.index);
+      typechecker_.OnBrIf(expr->br_if.var.index());
       break;
 
     case ExprType::BrTable: {
       typechecker_.BeginBrTable();
       for (Var& var : *expr->br_table.targets) {
-        typechecker_.OnBrTableTarget(var.index);
+        typechecker_.OnBrTableTarget(var.index());
       }
-      typechecker_.OnBrTableTarget(expr->br_table.default_target.index);
+      typechecker_.OnBrTableTarget(expr->br_table.default_target.index());
       typechecker_.EndBrTable();
       break;
     }
@@ -538,7 +539,7 @@ void Validator::CheckExpr(const Expr* expr) {
     case ExprType::Rethrow:
       if (try_contexts_.empty() || try_contexts_.back().catch_ == nullptr)
         PrintError(&expr->loc, "Rethrow not in try catch block");
-      typechecker_.OnRethrow(expr->rethrow_.var.index);
+      typechecker_.OnRethrow(expr->rethrow_.var.index());
       break;
 
     case ExprType::Return:
@@ -821,7 +822,7 @@ void Validator::CheckExport(const Location* loc, const Export* export_) {
       const Global* global;
       if (WABT_SUCCEEDED(CheckGlobalVar(&export_->var, &global, nullptr))) {
         if (global->mutable_) {
-          PrintError(&export_->var.loc, "mutable globals cannot be exported");
+          PrintError(&export_->var.loc(), "mutable globals cannot be exported");
         }
       }
       break;

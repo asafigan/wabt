@@ -46,11 +46,26 @@ struct Var {
   Var& operator =(Var&&);
   ~Var();
 
-  Location loc;
-  VarType type;
+  VarType type() const { return type_; }
+  bool is_index() const { return type_ == VarType::Index; }
+  bool is_name() const { return type_ == VarType::Name; }
+
+  const Location& loc() const { return loc_; }
+  Index index() const { return index_; }
+  const std::string& name() const { return name_; }
+
+  void SetLoc(const Location&);
+  void SetIndex(Index);
+  void SetName(const string_view&);
+
+ private:
+  void Destroy();
+
+  Location loc_;
+  VarType type_;
   union {
-    Index index;
-    std::string name;
+    Index index_;
+    std::string name_;
   };
 };
 typedef std::vector<Var> VarVector;
@@ -144,7 +159,7 @@ struct Catch {
   Var var;
   struct Expr* first;
   bool IsCatchAll() const {
-    return var.type == VarType::Index && var.index == kInvalidIndex;
+    return var.is_index() && var.index() == kInvalidIndex;
   }
 };
 

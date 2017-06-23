@@ -347,25 +347,25 @@ void WatWriter::WriteQuotedStringView(const string_view& str,
 }
 
 void WatWriter::WriteVar(const Var* var, NextChar next_char) {
-  if (var->type == VarType::Index) {
-    Writef("%" PRIindex, var->index);
+  if (var->is_index()) {
+    Writef("%" PRIindex, var->index());
     next_char_ = next_char;
   } else {
-    WriteName(var->name, next_char);
+    WriteName(var->name(), next_char);
   }
 }
 
 void WatWriter::WriteBrVar(const Var* var, NextChar next_char) {
-  if (var->type == VarType::Index) {
-    if (var->index < GetLabelStackSize()) {
-      Writef("%" PRIindex " (;@%" PRIindex ";)", var->index,
-             GetLabelStackSize() - var->index - 1);
+  if (var->is_index()) {
+    if (var->index() < GetLabelStackSize()) {
+      Writef("%" PRIindex " (;@%" PRIindex ";)", var->index(),
+             GetLabelStackSize() - var->index() - 1);
     } else {
-      Writef("%" PRIindex " (; INVALID ;)", var->index);
+      Writef("%" PRIindex " (; INVALID ;)", var->index());
     }
     next_char_ = next_char;
   } else {
-    WriteStringView(var->name, next_char);
+    WriteStringView(var->name(), next_char);
   }
 }
 
@@ -618,14 +618,14 @@ void WatWriter::WriteExprList(const Expr* first) {
 }
 
 Label* WatWriter::GetLabel(const Var* var) {
-  if (var->type == VarType::Name) {
+  if (var->is_name()) {
     for (Index i = GetLabelStackSize(); i > 0; --i) {
       Label* label = &label_stack_[i - 1];
-      if (label->name == var->name)
+      if (label->name == var->name())
         return label;
     }
-  } else if (var->index < GetLabelStackSize()) {
-    Label* label = &label_stack_[GetLabelStackSize() - var->index - 1];
+  } else if (var->index() < GetLabelStackSize()) {
+    Label* label = &label_stack_[GetLabelStackSize() - var->index() - 1];
     return label;
   }
   return nullptr;

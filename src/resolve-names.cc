@@ -133,30 +133,31 @@ void NameResolver::CheckDuplicateBindings(const BindingHash* bindings,
 }
 
 void NameResolver::ResolveLabelVar(Var* var) {
-  if (var->type == VarType::Name) {
+  if (var->is_name()) {
     for (int i = labels_.size() - 1; i >= 0; --i) {
       const std::string& label = labels_[i];
-      if (label == var->name) {
-        *var = Var(labels_.size() - i - 1);
+      if (label == var->name()) {
+        var->SetIndex(labels_.size() - i - 1);
         return;
       }
     }
-    PrintError(&var->loc, "undefined label variable \"%s\"", var->name.c_str());
+    PrintError(&var->loc(), "undefined label variable \"%s\"",
+               var->name().c_str());
   }
 }
 
 void NameResolver::ResolveVar(const BindingHash* bindings,
                               Var* var,
                               const char* desc) {
-  if (var->type == VarType::Name) {
+  if (var->is_name()) {
     Index index = bindings->FindIndex(*var);
     if (index == kInvalidIndex) {
-      PrintError(&var->loc, "undefined %s variable \"" PRIstringview "\"",
-                 desc, WABT_PRINTF_STRING_VIEW_ARG(var->name));
+      PrintError(&var->loc(), "undefined %s variable \"" PRIstringview "\"",
+                 desc, WABT_PRINTF_STRING_VIEW_ARG(var->name()));
       return;
     }
 
-    *var = Var(index);
+    var->SetIndex(index);
   }
 }
 
@@ -185,18 +186,18 @@ void NameResolver::ResolveExceptionVar(Var* var) {
 }
 
 void NameResolver::ResolveLocalVar(Var* var) {
-  if (var->type == VarType::Name) {
+  if (var->is_name()) {
     if (!current_func_)
       return;
 
     Index index = current_func_->GetLocalIndex(*var);
     if (index == kInvalidIndex) {
-      PrintError(&var->loc, "undefined local variable \"" PRIstringview "\"",
-                 WABT_PRINTF_STRING_VIEW_ARG(var->name));
+      PrintError(&var->loc(), "undefined local variable \"" PRIstringview "\"",
+                 WABT_PRINTF_STRING_VIEW_ARG(var->name()));
       return;
     }
 
-    *var = Var(index);
+    var->SetIndex(index);
   }
 }
 

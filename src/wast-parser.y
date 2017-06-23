@@ -107,13 +107,6 @@ static bool is_power_of_two(uint32_t x) {
   return x && ((x & (x - 1)) == 0);
 }
 
-template <typename T>
-typename std::remove_reference<T>::type&& move_and_delete(T* t) noexcept {
-  auto value = std::move(*t);
-  delete t;
-  return std::move(value);
-}
-
 static ExprList join_exprs1(Location* loc, Expr* expr1);
 static ExprList join_exprs2(Location* loc, ExprList* expr1, Expr* expr2);
 static void append_expr_list(ExprList* expr_list, ExprList* expr);
@@ -395,22 +388,23 @@ literal :
 var :
     nat {
       $$ = new Var($1);
-      $$->loc = @1;
+      $$->SetLoc(@1);
     }
   | VAR {
       $$ = new Var($1);
-      $$->loc = @1;
+      $$->SetLoc(@1);
     }
 ;
 var_list :
     /* empty */ { $$ = new VarVector(); }
   | var_list var {
       $$ = $1;
-      $$->emplace_back(move_and_delete($2));
+      $$->emplace_back(std::move(*$2));
+      delete $2;
     }
 ;
 bind_var_opt :
-    /* empty */ { $$ = nullptr; }
+    /* empty */ { $$ = new std::string(); }
   | bind_var
 ;
 bind_var :
@@ -418,7 +412,7 @@ bind_var :
 ;
 
 labeling_opt :
-    /* empty */ %prec LOW { $$ = nullptr; }
+    /* empty */ %prec LOW { $$ = new std::string(); }
   | bind_var
 ;
 
@@ -475,38 +469,47 @@ plain_instr :
       $$ = Expr::CreateSelect();
     }
   | BR var {
-      $$ = Expr::CreateBr(move_and_delete($2));
+      $$ = Expr::CreateBr(std::move(*$2));
+      delete $2;
     }
   | BR_IF var {
-      $$ = Expr::CreateBrIf(move_and_delete($2));
+      $$ = Expr::CreateBrIf(std::move(*$2));
+      delete $2;
     }
   | BR_TABLE var_list var {
-      $$ = Expr::CreateBrTable($2, move_and_delete($3));
+      $$ = Expr::CreateBrTable($2, std::move(*$3));
       delete $3;
     }
   | RETURN {
       $$ = Expr::CreateReturn();
     }
   | CALL var {
-      $$ = Expr::CreateCall(move_and_delete($2));
+      $$ = Expr::CreateCall(std::move(*$2));
+      delete $2;
     }
   | CALL_INDIRECT var {
-      $$ = Expr::CreateCallIndirect(move_and_delete($2));
+      $$ = Expr::CreateCallIndirect(std::move(*$2));
+      delete $2;
     }
   | GET_LOCAL var {
-      $$ = Expr::CreateGetLocal(move_and_delete($2));
+      $$ = Expr::CreateGetLocal(std::move(*$2));
+      delete $2;
     }
   | SET_LOCAL var {
-      $$ = Expr::CreateSetLocal(move_and_delete($2));
+      $$ = Expr::CreateSetLocal(std::move(*$2));
+      delete $2;
     }
   | TEE_LOCAL var {
-      $$ = Expr::CreateTeeLocal(move_and_delete($2));
+      $$ = Expr::CreateTeeLocal(std::move(*$2));
+      delete $2;
     }
   | GET_GLOBAL var {
-      $$ = Expr::CreateGetGlobal(move_and_delete($2));
+      $$ = Expr::CreateGetGlobal(std::move(*$2));
+      delete $2;
     }
   | SET_GLOBAL var {
-      $$ = Expr::CreateSetGlobal(move_and_delete($2));
+      $$ = Expr::CreateSetGlobal(std::move(*$2));
+      delete $2;
     }
   | LOAD offset_opt align_opt {
       $$ = Expr::CreateLoad($1, $3, $2);
@@ -547,37 +550,44 @@ plain_instr :
       $$ = Expr::CreateGrowMemory();
     }
   | throw_check var {
-      $$ = Expr::CreateThrow(move_and_delete($2));
+      $$ = Expr::CreateThrow(std::move(*$2));
+      delete $2;
     }
   | rethrow_check var {
-      $$ = Expr::CreateRethrow(move_and_delete($2));
+      $$ = Expr::CreateRethrow(std::move(*$2));
+      delete $2;
     }
 ;
 
 block_instr :
     BLOCK labeling_opt block END labeling_opt {
       $$ = Expr::CreateBlock($3);
-      $$->block->label = move_and_delete($2);
+      $$->block->label = std::move(*$2);
+      delete $2;
       CHECK_END_LABEL(@5, $$->block->label, $5);
     }
   | LOOP labeling_opt block END labeling_opt {
       $$ = Expr::CreateLoop($3);
-      $$->loop->label = move_and_delete($2);
+      $$->loop->label = std::move(*$2);
+      delete $2;
       CHECK_END_LABEL(@5, $$->loop->label, $5);
     }
   | IF labeling_opt block END labeling_opt {
       $$ = Expr::CreateIf($3, nullptr);
-      $$->if_.true_->label = move_and_delete($2);
+      $$->if_.true_->label = std::move(*$2);
+      delete $2;
       CHECK_END_LABEL(@5, $$->if_.true_->label, $5);
     }
   | IF labeling_opt block ELSE labeling_opt instr_list END labeling_opt {
       $$ = Expr::CreateIf($3, $6.first);
-      $$->if_.true_->label = move_and_delete($2);
+      $$->if_.true_->label = std::move(*$2);
+      delete $2;
       CHECK_END_LABEL(@5, $$->if_.true_->label, $5);
       CHECK_END_LABEL(@8, $$->if_.true_->label, $8);
     }
   | try_check labeling_opt block catch_instr_list END labeling_opt {
-      $3->label = move_and_delete($2);
+      $3->label = std::move(*$2);
+      delete $2;
       $$ = $4;
       $$->try_block.block = $3;
       CHECK_END_LABEL(@6, $3->label, $6);
@@ -601,7 +611,8 @@ block :
 
 plain_catch :
     CATCH var instr_list {
-      $$ = new Catch(move_and_delete($2), $3.first);
+      $$ = new Catch(std::move(*$2), $3.first);
+      delete $2;
       $$->loc = @1;
     }
   ;
@@ -638,23 +649,27 @@ expr1 :
     }
   | BLOCK labeling_opt block {
       Expr* expr = Expr::CreateBlock($3);
-      expr->block->label = move_and_delete($2);
+      expr->block->label = std::move(*$2);
+      delete $2;
       $$ = join_exprs1(&@1, expr);
     }
   | LOOP labeling_opt block {
       Expr* expr = Expr::CreateLoop($3);
-      expr->loop->label = move_and_delete($2);
+      expr->loop->label = std::move(*$2);
+      delete $2;
       $$ = join_exprs1(&@1, expr);
     }
   | IF labeling_opt if_block {
       $$ = $3;
       Expr* if_ = $3.last;
       assert(if_->type == ExprType::If);
-      if_->if_.true_->label = move_and_delete($2);
+      if_->if_.true_->label = std::move(*$2);
+      delete $2;
     }
   | try_check labeling_opt try_ {
       Block* block = $3->try_block.block;
-      block->label = move_and_delete($2);
+      block->label = std::move(*$2);
+      delete $2;
       $$ = join_exprs1(&@1, $3);
     }
   ;
@@ -776,8 +791,10 @@ const_expr :
 exception :
     LPAR EXCEPT bind_var_opt value_type_list RPAR {
       $$ = new Exception();
-      $$->name = move_and_delete($3);
-      $$->sig = move_and_delete($4);
+      $$->name = std::move(*$3);
+      delete $3;
+      $$->sig = std::move(*$4);
+      delete $4;
     }
   ;
 exception_field :
@@ -795,10 +812,12 @@ func :
       ModuleField* main = $$.first;
       main->loc = @2;
       if (main->type == ModuleFieldType::Func) {
-        main->func->name = move_and_delete($3);
+        main->func->name = std::move(*$3);
+        delete $3;
       } else {
         assert(main->type == ModuleFieldType::Import);
-        main->import->func->name = move_and_delete($3);
+        main->import->func->name = std::move(*$3);
+        delete $3;
       }
     }
 ;
@@ -808,7 +827,8 @@ func_fields :
       ModuleField* field = new ModuleField(ModuleFieldType::Func);
       field->func = $2;
       field->func->decl.has_func_type = true;
-      field->func->decl.type_var = move_and_delete($1);
+      field->func->decl.type_var = std::move(*$1);
+      delete $1;
       $$.first = $$.last = field;
     }
   | func_fields_body {
@@ -823,7 +843,8 @@ func_fields :
       field->import->kind = ExternalKind::Func;
       field->import->func = $3;
       field->import->func->decl.has_func_type = true;
-      field->import->func->decl.type_var = move_and_delete($2);
+      field->import->func->decl.type_var = std::move(*$2);
+      delete $2;
       $$.first = $$.last = field;
     }
   | inline_import func_fields_import {
@@ -861,8 +882,9 @@ func_fields_import1 :
     }
   | LPAR PARAM bind_var VALUE_TYPE RPAR func_fields_import1 {
       $$ = $6;
-      $$->param_bindings.emplace(move_and_delete($3),
+      $$->param_bindings.emplace(std::move(*$3),
                                  Binding(@3, $$->decl.sig.param_types.size()));
+      delete $3;
       $$->decl.sig.param_types.insert($$->decl.sig.param_types.begin(), $4);
     }
 ;
@@ -894,8 +916,9 @@ func_fields_body1 :
     }
   | LPAR PARAM bind_var VALUE_TYPE RPAR func_fields_body1 {
       $$ = $6;
-      $$->param_bindings.emplace(move_and_delete($3),
+      $$->param_bindings.emplace(std::move(*$3),
                                  Binding(@3, $$->decl.sig.param_types.size()));
+      delete $3;
       $$->decl.sig.param_types.insert($$->decl.sig.param_types.begin(), $4);
     }
 ;
@@ -929,8 +952,9 @@ func_body1 :
     }
   | LPAR LOCAL bind_var VALUE_TYPE RPAR func_body1 {
       $$ = $6;
-      $$->local_bindings.emplace(move_and_delete($3),
+      $$->local_bindings.emplace(std::move(*$3),
                                  Binding(@3, $$->local_types.size()));
+      delete $3;
       $$->local_types.insert($$->local_types.begin(), $4);
     }
 ;
@@ -949,19 +973,20 @@ elem :
       $$ = new ModuleField(ModuleFieldType::ElemSegment);
       $$->loc = @2;
       $$->elem_segment = new ElemSegment();
-      $$->elem_segment->table_var = move_and_delete($3);
+      $$->elem_segment->table_var = std::move(*$3);
+      delete $3;
       $$->elem_segment->offset = $4.first;
-      $$->elem_segment->vars = move_and_delete($5);
+      $$->elem_segment->vars = std::move(*$5);
+      delete $5;
     }
   | LPAR ELEM offset var_list RPAR {
       $$ = new ModuleField(ModuleFieldType::ElemSegment);
       $$->loc = @2;
       $$->elem_segment = new ElemSegment();
-      $$->elem_segment->table_var.loc = @2;
-      $$->elem_segment->table_var.type = VarType::Index;
-      $$->elem_segment->table_var.index = 0;
+      $$->elem_segment->table_var = Var(0, @2);
       $$->elem_segment->offset = $3.first;
-      $$->elem_segment->vars = move_and_delete($4);
+      $$->elem_segment->vars = std::move(*$4);
+      delete $4;
     }
 ;
 
@@ -971,10 +996,12 @@ table :
       ModuleField* main = $$.first;
       main->loc = @2;
       if (main->type == ModuleFieldType::Table) {
-        main->table->name = move_and_delete($3);
+        main->table->name = std::move(*$3);
+        delete $3;
       } else {
         assert(main->type == ModuleFieldType::Import);
-        main->import->table->name = move_and_delete($3);
+        main->import->table->name = std::move(*$3);
+        delete $3;
       }
     }
 ;
@@ -1011,10 +1038,11 @@ table_fields :
       ModuleField* elem_field = new ModuleField(ModuleFieldType::ElemSegment);
       elem_field->loc = @3;
       ElemSegment* elem_segment = elem_field->elem_segment = new ElemSegment();
-      elem_segment->table_var = Var(kInvalidIndex);
+      elem_segment->table_var.SetIndex(kInvalidIndex);
       elem_segment->offset = Expr::CreateConst(Const(Const::I32(), 0));
       elem_segment->offset->loc = @3;
-      elem_segment->vars = move_and_delete($4);
+      elem_segment->vars = std::move(*$4);
+      delete $4;
       $$.first = table_field;
       $$.last = table_field->next = elem_field;
     }
@@ -1025,7 +1053,8 @@ data :
       $$ = new ModuleField(ModuleFieldType::DataSegment);
       $$->loc = @2;
       $$->data_segment = new DataSegment();
-      $$->data_segment->memory_var = move_and_delete($3);
+      $$->data_segment->memory_var = std::move(*$3);
+      delete $3;
       $$->data_segment->offset = $4.first;
       // TODO(binji): write data to char/size buffer.
       #if 0
@@ -1040,9 +1069,7 @@ data :
       $$ = new ModuleField(ModuleFieldType::DataSegment);
       $$->loc = @2;
       $$->data_segment = new DataSegment();
-      $$->data_segment->memory_var.loc = @2;
-      $$->data_segment->memory_var.type = VarType::Index;
-      $$->data_segment->memory_var.index = 0;
+      $$->data_segment->memory_var = Var(0, @2);
       $$->data_segment->offset = $3.first;
       // TODO(binji): write data to char/size buffer.
       #if 0
@@ -1061,10 +1088,12 @@ memory :
       ModuleField* main = $$.first;
       main->loc = @2;
       if (main->type == ModuleFieldType::Memory) {
-        main->memory->name = move_and_delete($3);
+        main->memory->name = std::move(*$3);
+        delete $3;
       } else {
         assert(main->type == ModuleFieldType::Import);
-        main->import->memory->name = move_and_delete($3);
+        main->import->memory->name = std::move(*$3);
+        delete $3;
       }
     }
 ;
@@ -1095,7 +1124,7 @@ memory_fields :
       ModuleField* data_field = new ModuleField(ModuleFieldType::DataSegment);
       data_field->loc = @2;
       DataSegment* data_segment = data_field->data_segment = new DataSegment();
-      data_segment->memory_var = Var(kInvalidIndex);
+      data_segment->memory_var.SetIndex(kInvalidIndex);
       data_segment->offset = Expr::CreateConst(Const(Const::I32(), 0));
       data_segment->offset->loc = @2;
       // TODO(binji):
@@ -1126,10 +1155,12 @@ global :
       ModuleField* main = $$.first;
       main->loc = @2;
       if (main->type == ModuleFieldType::Global) {
-        main->global->name = move_and_delete($3);
+        main->global->name = std::move(*$3);
+        delete $3;
       } else {
         assert(main->type == ModuleFieldType::Import);
-        main->import->global->name = move_and_delete($3);
+        main->import->global->name = std::move(*$3);
+        delete $3;
       }
     }
 ;
@@ -1166,34 +1197,41 @@ import_desc :
       $$ = new Import();
       $$->kind = ExternalKind::Func;
       $$->func = new Func();
-      $$->func->name = move_and_delete($3);
+      $$->func->name = std::move(*$3);
+      delete $3;
       $$->func->decl.has_func_type = true;
-      $$->func->decl.type_var = move_and_delete($4);
+      $$->func->decl.type_var = std::move(*$4);
+      delete $4;
     }
   | LPAR FUNC bind_var_opt func_sig RPAR {
       $$ = new Import();
       $$->kind = ExternalKind::Func;
       $$->func = new Func();
-      $$->func->name = move_and_delete($3);
-      $$->func->decl.sig = move_and_delete($4);
+      $$->func->name = std::move(*$3);
+      delete $3;
+      $$->func->decl.sig = std::move(*$4);
+      delete $4;
     }
   | LPAR TABLE bind_var_opt table_sig RPAR {
       $$ = new Import();
       $$->kind = ExternalKind::Table;
       $$->table = $4;
-      $$->table->name = move_and_delete($3);
+      $$->table->name = std::move(*$3);
+      delete $3;
     }
   | LPAR MEMORY bind_var_opt memory_sig RPAR {
       $$ = new Import();
       $$->kind = ExternalKind::Memory;
       $$->memory = $4;
-      $$->memory->name = move_and_delete($3);
+      $$->memory->name = std::move(*$3);
+      delete $3;
     }
   | LPAR GLOBAL bind_var_opt global_type RPAR {
       $$ = new Import();
       $$->kind = ExternalKind::Global;
       $$->global = $4;
-      $$->global->name = move_and_delete($3);
+      $$->global->name = std::move(*$3);
+      delete $3;
     }
   | exception {
       $$ = new Import();
@@ -1207,16 +1245,20 @@ import :
       $$ = new ModuleField(ModuleFieldType::Import);
       $$->loc = @2;
       $$->import = $5;
-      $$->import->module_name = move_and_delete($3);
-      $$->import->field_name = move_and_delete($4);
+      $$->import->module_name = std::move(*$3);
+      delete $3;
+      $$->import->field_name = std::move(*$4);
+      delete $4;
     }
 ;
 
 inline_import :
     LPAR IMPORT quoted_text quoted_text RPAR {
       $$ = new Import();
-      $$->module_name = move_and_delete($3);
-      $$->field_name = move_and_delete($4);
+      $$->module_name = std::move(*$3);
+      delete $3;
+      $$->field_name = std::move(*$4);
+      delete $4;
     }
 ;
 
@@ -1224,27 +1266,32 @@ export_desc :
     LPAR FUNC var RPAR {
       $$ = new Export();
       $$->kind = ExternalKind::Func;
-      $$->var = move_and_delete($3);
+      $$->var = std::move(*$3);
+      delete $3;
     }
   | LPAR TABLE var RPAR {
       $$ = new Export();
       $$->kind = ExternalKind::Table;
-      $$->var = move_and_delete($3);
+      $$->var = std::move(*$3);
+      delete $3;
     }
   | LPAR MEMORY var RPAR {
       $$ = new Export();
       $$->kind = ExternalKind::Memory;
-      $$->var = move_and_delete($3);
+      $$->var = std::move(*$3);
+      delete $3;
     }
   | LPAR GLOBAL var RPAR {
       $$ = new Export();
       $$->kind = ExternalKind::Global;
-      $$->var = move_and_delete($3);
+      $$->var = std::move(*$3);
+      delete $3;
     }
   | LPAR EXCEPT var RPAR {
       $$ = new Export();
       $$->kind = ExternalKind::Except;
-      $$->var = move_and_delete($3);
+      $$->var = std::move(*$3);
+      delete $3;
     }
 ;
 export :
@@ -1252,14 +1299,16 @@ export :
       $$ = new ModuleField(ModuleFieldType::Export);
       $$->loc = @2;
       $$->export_ = $4;
-      $$->export_->name = move_and_delete($3);
+      $$->export_->name = std::move(*$3);
+      delete $3;
     }
 ;
 
 inline_export :
     LPAR EXPORT quoted_text RPAR {
       $$ = new Export();
-      $$->name = move_and_delete($3);
+      $$->name = std::move(*$3);
+      delete $3;
     }
 ;
 
@@ -1271,14 +1320,17 @@ type_def :
       $$ = new ModuleField(ModuleFieldType::FuncType);
       $$->loc = @2;
       $$->func_type = new FuncType();
-      $$->func_type->sig = move_and_delete($3);
+      $$->func_type->sig = std::move(*$3);
+      delete $3;
     }
   | LPAR TYPE bind_var func_type RPAR {
       $$ = new ModuleField(ModuleFieldType::FuncType);
       $$->loc = @2;
       $$->func_type = new FuncType();
-      $$->func_type->name = move_and_delete($3);
-      $$->func_type->sig = move_and_delete($4);
+      $$->func_type->name = std::move(*$3);
+      delete $3;
+      $$->func_type->sig = std::move(*$4);
+      delete $4;
     }
 ;
 
@@ -1286,7 +1338,8 @@ start :
     LPAR START var RPAR {
       $$ = new ModuleField(ModuleFieldType::Start);
       $$->loc = @2;
-      $$->start = move_and_delete($3);
+      $$->start = std::move(*$3);
+      delete $3;
     }
 ;
 
@@ -1363,7 +1416,8 @@ script_module :
       $$ = new ScriptModule();
       $$->type = ScriptModule::Type::Text;
       $$->text = $4;
-      $$->text->name = move_and_delete($3);
+      $$->text->name = std::move(*$3);
+      delete $3;
       $$->text->loc = @2;
 
       // Resolve func type variables where the signature was not specified
@@ -1380,7 +1434,8 @@ script_module :
   | LPAR MODULE bind_var_opt BIN text_list RPAR {
       $$ = new ScriptModule();
       $$->type = ScriptModule::Type::Binary;
-      $$->binary.name = move_and_delete($3);
+      $$->binary.name = std::move(*$3);
+      delete $3;
       $$->binary.loc = @2;
        // TODO(binji)
       #if 0
@@ -1391,7 +1446,8 @@ script_module :
   | LPAR MODULE bind_var_opt QUOTE text_list RPAR {
       $$ = new ScriptModule();
       $$->type = ScriptModule::Type::Quoted;
-      $$->quoted.name = move_and_delete($3);
+      $$->quoted.name = std::move(*$3);
+      delete $3;
       $$->quoted.loc = @2;
        // TODO(binji)
       #if 0
@@ -1405,18 +1461,23 @@ action :
     LPAR INVOKE script_var_opt quoted_text const_list RPAR {
       $$ = new Action();
       $$->loc = @2;
-      $$->module_var = move_and_delete($3);
+      $$->module_var = std::move(*$3);
+      delete $3;
       $$->type = ActionType::Invoke;
-      $$->name = move_and_delete($4);
+      $$->name = std::move(*$4);
+      delete $4;
       $$->invoke = new ActionInvoke();
-      $$->invoke->args = move_and_delete($5);
+      $$->invoke->args = std::move(*$5);
+      delete $5;
     }
   | LPAR GET script_var_opt quoted_text RPAR {
       $$ = new Action();
       $$->loc = @2;
-      $$->module_var = move_and_delete($3);
+      $$->module_var = std::move(*$3);
+      delete $3;
       $$->type = ActionType::Get;
-      $$->name = move_and_delete($4);
+      $$->name = std::move(*$4);
+      delete $4;
     }
 ;
 
@@ -1425,25 +1486,29 @@ assertion :
       $$ = new Command();
       $$->type = CommandType::AssertMalformed;
       $$->assert_malformed.module = $3;
-      $$->assert_malformed.text = move_and_delete($4);
+      $$->assert_malformed.text = std::move(*$4);
+      delete $4;
     }
   | LPAR ASSERT_INVALID script_module quoted_text RPAR {
       $$ = new Command();
       $$->type = CommandType::AssertInvalid;
       $$->assert_invalid.module = $3;
-      $$->assert_invalid.text = move_and_delete($4);
+      $$->assert_invalid.text = std::move(*$4);
+      delete $4;
     }
   | LPAR ASSERT_UNLINKABLE script_module quoted_text RPAR {
       $$ = new Command();
       $$->type = CommandType::AssertUnlinkable;
       $$->assert_unlinkable.module = $3;
-      $$->assert_unlinkable.text = move_and_delete($4);
+      $$->assert_unlinkable.text = std::move(*$4);
+      delete $4;
     }
   | LPAR ASSERT_TRAP script_module quoted_text RPAR {
       $$ = new Command();
       $$->type = CommandType::AssertUninstantiable;
       $$->assert_uninstantiable.module = $3;
-      $$->assert_uninstantiable.text = move_and_delete($4);
+      $$->assert_uninstantiable.text = std::move(*$4);
+      delete $4;
     }
   | LPAR ASSERT_RETURN action const_list RPAR {
       $$ = new Command();
@@ -1465,13 +1530,15 @@ assertion :
       $$ = new Command();
       $$->type = CommandType::AssertTrap;
       $$->assert_trap.action = $3;
-      $$->assert_trap.text = move_and_delete($4);
+      $$->assert_trap.text = std::move(*$4);
+      delete $4;
     }
   | LPAR ASSERT_EXHAUSTION action quoted_text RPAR {
       $$ = new Command();
       $$->type = CommandType::AssertExhaustion;
       $$->assert_trap.action = $3;
-      $$->assert_trap.text = move_and_delete($4);
+      $$->assert_trap.text = std::move(*$4);
+      delete $4;
     }
 ;
 
@@ -1490,9 +1557,11 @@ cmd :
   | LPAR REGISTER quoted_text script_var_opt RPAR {
       $$ = new Command();
       $$->type = CommandType::Register;
-      $$->register_.module_name = move_and_delete($3);
-      $$->register_.var = move_and_delete($4);
-      $$->register_.var.loc = @4;
+      $$->register_.module_name = std::move(*$3);
+      delete $3;
+      $$->register_.var = std::move(*$4);
+      delete $4;
+      $$->register_.var.SetLoc(@4);
     }
 ;
 cmd_list :
@@ -1533,7 +1602,8 @@ script :
     }
   | cmd_list {
       $$ = new Script();
-      $$->commands = move_and_delete($1);
+      $$->commands = std::move(*$1);
+      delete $1;
 
       int last_module_index = -1;
       for (size_t i = 0; i < $$->commands.size(); ++i) {
@@ -1577,9 +1647,9 @@ script :
           has_module_var: {
             /* Resolve actions with an invalid index to use the preceding
              * module. */
-            if (module_var->type == VarType::Index &&
-                module_var->index == kInvalidIndex) {
-              module_var->index = last_module_index;
+            if (module_var->is_index() &&
+                module_var->index() == kInvalidIndex) {
+              module_var->SetIndex(last_module_index);
             }
             break;
           }
@@ -1844,8 +1914,7 @@ void append_module_fields(Module* module, ModuleField* first) {
       case ModuleFieldType::Export:
         if (field != main_field) {
           // If this is not the main field, it must be an inline export.
-          field->export_->var.type = VarType::Index;
-          field->export_->var.index = main_index;
+          field->export_->var.SetIndex(main_index);
         }
         name = &field->export_->name;
         bindings = &module->export_bindings;
@@ -1870,8 +1939,7 @@ void append_module_fields(Module* module, ModuleField* first) {
       case ModuleFieldType::ElemSegment:
         if (field != main_field) {
           // If this is not the main field, it must be an inline elem segment.
-          field->elem_segment->table_var.type = VarType::Index;
-          field->elem_segment->table_var.index = main_index;
+          field->elem_segment->table_var.SetIndex(main_index);
         }
         module->elem_segments.push_back(field->elem_segment);
         break;
@@ -1886,8 +1954,7 @@ void append_module_fields(Module* module, ModuleField* first) {
       case ModuleFieldType::DataSegment:
         if (field != main_field) {
           // If this is not the main field, it must be an inline data segment.
-          field->data_segment->memory_var.type = VarType::Index;
-          field->data_segment->memory_var.index = main_index;
+          field->data_segment->memory_var.SetIndex(main_index);
         }
         module->data_segments.push_back(field->data_segment);
         break;
