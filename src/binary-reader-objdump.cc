@@ -531,6 +531,8 @@ class BinaryReaderObjdump : public BinaryReaderObjdumpBase {
   Result OnStackGlobal(Index stack_global) override;
   Result OnSymbolInfoCount(Index count) override;
   Result OnSymbolInfo(StringSlice name, uint32_t flags) override;
+  Result OnDataSize(uint32_t data_size) override;
+  Result OnDataAlignment(uint32_t data_alignment) override;
 
  private:
   bool ShouldPrintDetails();
@@ -1039,6 +1041,16 @@ Result BinaryReaderObjdump::OnSymbolInfo(StringSlice name,
                                          uint32_t flags) {
   PrintDetails("   - <" PRIstringslice "> flags=0x%x\n",
                WABT_PRINTF_STRING_SLICE_ARG(name), flags);
+  return Result::Ok;
+}
+
+Result BinaryReaderObjdump::OnDataSize(uint32_t data_size) {
+  PrintDetails("  - data size : %d\n", data_size);
+  return Result::Ok;
+}
+
+Result BinaryReaderObjdump::OnDataAlignment(uint32_t data_alignment) {
+  PrintDetails("  - data align: %d\n", data_alignment);
   return Result::Ok;
 }
 
